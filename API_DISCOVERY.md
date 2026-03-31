@@ -16,6 +16,7 @@ Mobbin is a **Next.js app** that uses **Supabase** as its backend. Unlike the ol
 ## Authentication
 
 ### Flow
+
 1. User clicks "Continue with Google" on `/login`
 2. Redirects to Google OAuth with `client_id=672621582021-a5cmbeo4rjqqj0tqo6u2ff614lmnjh2s.apps.googleusercontent.com`
 3. Google redirects to `https://ujasntkfphywizsdaapi.supabase.co/auth/v1/callback`
@@ -23,9 +24,11 @@ Mobbin is a **Next.js app** that uses **Supabase** as its backend. Unlike the ol
 5. Auth token stored in **cookies** (NOT localStorage)
 
 ### Token Storage
+
 Cookies named `sb-ujasntkfphywizsdaapi-auth-token.0` and `.1` (split across two cookies due to size).
 
 Contains JSON:
+
 ```json
 {
   "access_token": "eyJ...<JWT>",
@@ -46,6 +49,7 @@ Contains JSON:
 ```
 
 ### For MCP Server
+
 The MCP server needs the Supabase auth cookie value to make authenticated requests. Users will extract this from their browser and provide it as an env var.
 
 ---
@@ -53,9 +57,11 @@ The MCP server needs the Supabase auth cookie value to make authenticated reques
 ## Core Content API Endpoints
 
 ### `POST /api/content/search-apps`
+
 Search and browse apps with filtering and pagination.
 
 **Request:**
+
 ```json
 {
   "searchRequestId": "",
@@ -72,6 +78,7 @@ Search and browse apps with filtering and pagination.
 ```
 
 **Response:**
+
 ```json
 {
   "value": {
@@ -91,9 +98,7 @@ Search and browse apps with filtering and pagination.
         "appVersionPublishedAt": "...",
         "hidden_in_discover_latest": false,
         "average_rating": null,
-        "previewScreens": [
-          { "id": "<uuid>", "screenUrl": "<supabase_url>" }
-        ],
+        "previewScreens": [{ "id": "<uuid>", "screenUrl": "<supabase_url>" }],
         "previewVideoUrl": null,
         "popularityMetric": 7123,
         "trendingMetric": 56,
@@ -105,6 +110,7 @@ Search and browse apps with filtering and pagination.
 ```
 
 **Filter options:**
+
 - `platform`: "ios" | "android" | "web"
 - `appCategories`: string[] (e.g., ["AI", "Finance", "Music & Audio"])
 - `sortBy`: "publishedAt" | "trending" | "popular" | "top"
@@ -112,9 +118,11 @@ Search and browse apps with filtering and pagination.
 ---
 
 ### `POST /api/content/search-screens`
+
 Search screens across all apps with pattern/element/keyword filters.
 
 **Request:**
+
 ```json
 {
   "searchRequestId": "",
@@ -135,6 +143,7 @@ Search screens across all apps with pattern/element/keyword filters.
 ```
 
 **Response:**
+
 ```json
 {
   "value": {
@@ -172,9 +181,11 @@ Search screens across all apps with pattern/element/keyword filters.
 ---
 
 ### `POST /api/content/search-flows`
+
 Search flows/user journeys across all apps.
 
 **Request:**
+
 ```json
 {
   "searchRequestId": "",
@@ -192,6 +203,7 @@ Search flows/user journeys across all apps.
 ```
 
 **Response:**
+
 ```json
 {
   "value": {
@@ -231,9 +243,11 @@ Search flows/user journeys across all apps.
 ## Search & Autocomplete Endpoints
 
 ### `POST /api/search-bar/search`
+
 Autocomplete search — returns matching IDs by type.
 
 **Request:**
+
 ```json
 {
   "query": "spotify",
@@ -243,6 +257,7 @@ Autocomplete search — returns matching IDs by type.
 ```
 
 **Response:**
+
 ```json
 {
   "value": {
@@ -258,6 +273,7 @@ Autocomplete search — returns matching IDs by type.
 Note: Returns IDs only. Client cross-references with `/api/searchable-apps/{platform}` cached data.
 
 ### `GET /api/searchable-apps/{platform}`
+
 Full app list for client-side search/autocomplete. Platforms: `ios`, `android`, `web`.
 
 ```json
@@ -275,21 +291,27 @@ Full app list for client-side search/autocomplete. Platforms: `ios`, `android`, 
 ```
 
 ### `GET /api/recent-searches`
+
 Returns user's recent search history.
 
 ### `POST /api/search-bar/fetch-trending-apps`
+
 Body: `{"platform": "ios"}`
 
 ### `POST /api/search-bar/fetch-trending-filter-tags`
+
 Body: `{"experience": "apps", "platform": "ios"}` or `{"experience": "sites"}`
 
 ### `POST /api/search-bar/fetch-trending-text-in-screenshot-keywords`
+
 Body: `{"platform": "ios"}`
 
 ### `POST /api/search-bar/fetch-trending-sites`
+
 Body: `null` (no body needed)
 
 ### `POST /api/search-bar/fetch-searchable-sites`
+
 Body: `null`
 
 ---
@@ -297,7 +319,9 @@ Body: `null`
 ## Browse & Filter Endpoints
 
 ### `POST /api/popular-apps/fetch-popular-apps-with-preview-screens`
+
 **Request:**
+
 ```json
 {
   "platform": "ios",
@@ -306,6 +330,7 @@ Body: `null`
 ```
 
 **Response:**
+
 ```json
 {
   "value": [
@@ -323,6 +348,7 @@ Body: `null`
 ```
 
 ### `POST /api/filter-tags/fetch-dictionary-definitions`
+
 Body: `{}` — returns all filter taxonomy (categories, screen patterns, UI elements, flow actions).
 
 ---
@@ -330,6 +356,7 @@ Body: `{}` — returns all filter taxonomy (categories, screen patterns, UI elem
 ## Collections Endpoints
 
 ### `POST /api/collection/fetch-collections`
+
 Body: `null` — returns user's collections.
 
 ```json
@@ -359,9 +386,11 @@ Body: `null` — returns user's collections.
 ```
 
 ### `POST /api/saved/fetch-saved-contents`
+
 Check if specific content is saved.
 
 **Request:**
+
 ```json
 {
   "contentType": "apps",
@@ -374,21 +403,25 @@ Check if specific content is saved.
 ## Image/Media URLs
 
 ### App Logos (public, no auth)
+
 ```
 https://ujasntkfphywizsdaapi.supabase.co/storage/v1/object/public/content/app_logos/{uuid}.webp
 ```
 
 ### App Screens (public, no auth)
+
 ```
 https://ujasntkfphywizsdaapi.supabase.co/storage/v1/object/public/content/app_screens/{uuid}.png
 ```
 
 ### Optimized Screen Images (CDN)
+
 ```
 https://bytescale.mobbin.com/FW25bBB/image/mobbin.com/prod/file.webp?enc=...
 ```
 
 ### Flow Videos
+
 ```
 https://bytescale.mobbin.com/FW25bBB/video/mobbin.com/prod/content/app_flow_videos/{uuid}.mp4?f=mp4-h264&w=1920&...
 ```
@@ -398,6 +431,7 @@ https://bytescale.mobbin.com/FW25bBB/video/mobbin.com/prod/content/app_flow_vide
 ## Pagination
 
 All content endpoints use page-based pagination:
+
 ```json
 {
   "paginationOptions": {
@@ -415,6 +449,7 @@ Sort options: `"trending"`, `"publishedAt"`, `"popular"`, `"top"`
 ## URL Patterns (for reference)
 
 ### App Pages
+
 ```
 /apps/{app-slug}-{platform}-{app-uuid}/{version-uuid}/screens
 /apps/{app-slug}-{platform}-{app-uuid}/{version-uuid}/flows
@@ -422,12 +457,14 @@ Sort options: `"trending"`, `"publishedAt"`, `"popular"`, `"top"`
 ```
 
 ### Discover
+
 ```
 /discover/apps/{platform}/{tab}    # tab = latest|popular|top|animations
 /discover/sites/{tab}
 ```
 
 ### Search
+
 ```
 /search/apps/{platform}?content_type={type}&sort={sort}&filter={filter}
 ```

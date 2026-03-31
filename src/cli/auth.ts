@@ -17,7 +17,7 @@ export async function runAuthFlow(): Promise<void> {
     console.log("1. Open mobbin.com and log in");
     console.log("2. Open the browser console (Cmd+Option+J)");
     console.log("3. Paste this and press Enter:\n");
-    console.log('   copy(document.cookie)\n');
+    console.log("   copy(document.cookie)\n");
     console.log("4. Paste the result below:\n");
 
     const cookie = (await prompt(rl, "Cookie: ")).trim();
@@ -32,7 +32,7 @@ export async function runAuthFlow(): Promise<void> {
 
     console.log(
       "\nAuthenticated successfully! Session saved to ~/.mobbin-mcp/auth.json" +
-        "\nYou can now use the MCP server without setting MOBBIN_AUTH_COOKIE.\n"
+        "\nYou can now use the MCP server without setting MOBBIN_AUTH_COOKIE.\n",
     );
   } finally {
     rl.close();

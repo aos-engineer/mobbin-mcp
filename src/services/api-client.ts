@@ -1,5 +1,12 @@
 import sharp from "sharp";
-import { MOBBIN_BASE_URL, ALLOWED_IMAGE_HOSTS, MAX_IMAGE_SIZE_BYTES, IMAGE_FETCH_TIMEOUT_MS, BYTESCALE_CDN_BASE, SUPABASE_STORAGE_PREFIX } from "../constants.js";
+import {
+  MOBBIN_BASE_URL,
+  ALLOWED_IMAGE_HOSTS,
+  MAX_IMAGE_SIZE_BYTES,
+  IMAGE_FETCH_TIMEOUT_MS,
+  BYTESCALE_CDN_BASE,
+  SUPABASE_STORAGE_PREFIX,
+} from "../constants.js";
 import type {
   AppResult,
   ScreenResult,
@@ -30,7 +37,7 @@ export class MobbinApiClient {
   /** Make an authenticated request to a Mobbin API route. Automatically uses a fresh token. */
   private async request<T>(
     path: string,
-    options: { method?: string; body?: unknown } = {}
+    options: { method?: string; body?: unknown } = {},
   ): Promise<T> {
     const { method = "GET", body } = options;
     const cookie = await this.auth.getCookieValue();
@@ -52,7 +59,7 @@ export class MobbinApiClient {
     if (!res.ok) {
       const text = await res.text().catch(() => "");
       throw new Error(
-        `Mobbin API error: ${res.status} ${res.statusText} - ${path}${text ? `: ${text.substring(0, 200)}` : ""}`
+        `Mobbin API error: ${res.status} ${res.statusText} - ${path}${text ? `: ${text.substring(0, 200)}` : ""}`,
       );
     }
 
@@ -186,9 +193,7 @@ export class MobbinApiClient {
    * This is a large response (~1000+ apps); results are cached by the Mobbin client.
    * Endpoint: `GET /api/searchable-apps/{platform}`
    */
-  async getSearchableApps(
-    platform: string
-  ): Promise<SearchableApp[]> {
+  async getSearchableApps(platform: string): Promise<SearchableApp[]> {
     return this.request(`/api/searchable-apps/${platform}`);
   }
 
@@ -199,22 +204,29 @@ export class MobbinApiClient {
   async getPopularApps(params: {
     platform: string;
     limitPerCategory?: number;
-  }): Promise<ValueResponse<Array<{
-    app_id: string;
-    app_name: string;
-    app_logo_url: string;
-    preview_screens: Array<{ id: string; screenUrl: string }>;
-    app_category: string;
-    secondary_app_categories: string[];
-    popularity_metric: number;
-  }>>> {
-    return this.request("/api/popular-apps/fetch-popular-apps-with-preview-screens", {
-      method: "POST",
-      body: {
-        platform: params.platform,
-        limitPerCategory: params.limitPerCategory ?? 10,
+  }): Promise<
+    ValueResponse<
+      Array<{
+        app_id: string;
+        app_name: string;
+        app_logo_url: string;
+        preview_screens: Array<{ id: string; screenUrl: string }>;
+        app_category: string;
+        secondary_app_categories: string[];
+        popularity_metric: number;
+      }>
+    >
+  > {
+    return this.request(
+      "/api/popular-apps/fetch-popular-apps-with-preview-screens",
+      {
+        method: "POST",
+        body: {
+          platform: params.platform,
+          limitPerCategory: params.limitPerCategory ?? 10,
+        },
       },
-    });
+    );
   }
 
   /**
@@ -260,7 +272,9 @@ export class MobbinApiClient {
       throw new Error(`Unrecognized Supabase URL format: ${imageUrl}`);
     }
 
-    const storagePath = parsed.pathname.slice(storageIdx + SUPABASE_STORAGE_PREFIX.length);
+    const storagePath = parsed.pathname.slice(
+      storageIdx + SUPABASE_STORAGE_PREFIX.length,
+    );
     return `${BYTESCALE_CDN_BASE}/${storagePath}?f=webp&w=1920&q=85&fit=shrink-cover`;
   }
 
@@ -278,41 +292,57 @@ export class MobbinApiClient {
     const parsed = new URL(imageUrl);
     if (!ALLOWED_IMAGE_HOSTS.includes(parsed.hostname)) {
       throw new Error(
-        `Untrusted image host: ${parsed.hostname}. Only Supabase storage and Bytescale CDN URLs are supported.`
+        `Untrusted image host: ${parsed.hostname}. Only Supabase storage and Bytescale CDN URLs are supported.`,
       );
     }
 
     const fetchUrl = this.toCdnUrl(imageUrl);
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), IMAGE_FETCH_TIMEOUT_MS);
+    const timeoutId = setTimeout(
+      () => controller.abort(),
+      IMAGE_FETCH_TIMEOUT_MS,
+    );
 
     try {
       const res = await fetch(fetchUrl, { signal: controller.signal });
 
       if (!res.ok) {
-        throw new Error(`Failed to fetch image: ${res.status} ${res.statusText} — ${fetchUrl}`);
+        throw new Error(
+          `Failed to fetch image: ${res.status} ${res.statusText} — ${fetchUrl}`,
+        );
       }
 
       const contentLength = res.headers.get("content-length");
       if (contentLength && parseInt(contentLength, 10) > MAX_IMAGE_SIZE_BYTES) {
-        throw new Error(`Image too large (${contentLength} bytes). Max: ${MAX_IMAGE_SIZE_BYTES} bytes.`);
+        throw new Error(
+          `Image too large (${contentLength} bytes). Max: ${MAX_IMAGE_SIZE_BYTES} bytes.`,
+        );
       }
 
       const buffer = await res.arrayBuffer();
       if (buffer.byteLength > MAX_IMAGE_SIZE_BYTES) {
-        throw new Error(`Image too large (${buffer.byteLength} bytes). Max: ${MAX_IMAGE_SIZE_BYTES} bytes.`);
+        throw new Error(
+          `Image too large (${buffer.byteLength} bytes). Max: ${MAX_IMAGE_SIZE_BYTES} bytes.`,
+        );
       }
 
-      let mimeType = res.headers.get("content-type")?.split(";")[0]?.trim() || "";
+      let mimeType =
+        res.headers.get("content-type")?.split(";")[0]?.trim() || "";
       if (!mimeType || mimeType === "application/octet-stream") {
         if (fetchUrl.includes("f=webp")) mimeType = "image/webp";
         else if (fetchUrl.endsWith(".png")) mimeType = "image/png";
-        else if (fetchUrl.endsWith(".jpg") || fetchUrl.endsWith(".jpeg")) mimeType = "image/jpeg";
+        else if (fetchUrl.endsWith(".jpg") || fetchUrl.endsWith(".jpeg"))
+          mimeType = "image/jpeg";
         else mimeType = "image/png";
       }
 
       const base64 = Buffer.from(buffer).toString("base64");
-      return { base64, mimeType, sizeBytes: buffer.byteLength, buffer: Buffer.from(buffer) };
+      return {
+        base64,
+        mimeType,
+        sizeBytes: buffer.byteLength,
+        buffer: Buffer.from(buffer),
+      };
     } finally {
       clearTimeout(timeoutId);
     }
@@ -322,7 +352,10 @@ export class MobbinApiClient {
    * Extract dominant colors from a screen image buffer.
    * Returns an array of hex color strings sorted by frequency.
    */
-  async extractColors(imageBuffer: Buffer, maxColors: number = 8): Promise<string[]> {
+  async extractColors(
+    imageBuffer: Buffer,
+    maxColors: number = 8,
+  ): Promise<string[]> {
     // Resize to small thumbnail for faster color sampling
     const { data, info } = await sharp(imageBuffer)
       .resize(64, 64, { fit: "cover" })

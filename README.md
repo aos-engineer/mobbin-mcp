@@ -1,6 +1,6 @@
 # Mobbin MCP Server
 
-An un-offical MCP server that connects to [Mobbin](https://mobbin.com) — the design inspiration platform with 600k+ screens from 1,100+ apps. Search apps, browse screenshots, explore user flows, and access your saved collections directly from Claude.
+An unoffical MCP server that connects to [Mobbin](https://mobbin.com) — the design inspiration platform with 600k+ screens from 1,100+ apps. Search apps, browse screenshots, explore user flows, and access your saved collections directly from Claude.
 
 Mobbin has no public API. This server was built by reverse-engineering their internal endpoints using Playwright.
 

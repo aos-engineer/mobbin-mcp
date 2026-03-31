@@ -53,6 +53,7 @@ src/
 ## Reporting issues
 
 Open an issue on GitHub with:
+
 - What you expected to happen
 - What actually happened
 - Steps to reproduce

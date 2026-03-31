@@ -1,5 +1,10 @@
 import { CHARACTER_LIMIT } from "../constants.js";
-import type { AppResult, ScreenResult, FlowResult, Collection } from "../types.js";
+import type {
+  AppResult,
+  ScreenResult,
+  FlowResult,
+  Collection,
+} from "../types.js";
 
 export function formatApps(apps: AppResult[]): string {
   if (apps.length === 0) return "No apps found.";
@@ -40,10 +45,12 @@ export function formatScreens(screens: ScreenResult[]): string {
       `- **Screen URL**: ${s.screenUrl}`,
       `- **App ID**: ${s.appId}`,
       `- **Screen ID**: ${s.id}`,
-      s.metadata ? `- **Dimensions**: ${s.metadata.width}x${s.metadata.height}` : "",
+      s.metadata
+        ? `- **Dimensions**: ${s.metadata.width}x${s.metadata.height}`
+        : "",
     ]
       .filter(Boolean)
-      .join("\n")
+      .join("\n"),
   );
 
   return truncate(lines.join("\n\n"));
@@ -57,7 +64,7 @@ export function formatFlows(flows: FlowResult[]): string {
       .slice(0, 5)
       .map(
         (s, j) =>
-          `  ${j + 1}. ${s.screenPatterns.join(", ") || "Step"} — ${s.screenUrl}`
+          `  ${j + 1}. ${s.screenPatterns.join(", ") || "Step"} — ${s.screenUrl}`,
       )
       .join("\n");
     const appInfo = f.appName ? `- **App**: ${f.appName}` : "";
@@ -94,7 +101,7 @@ export function formatCollections(collections: Collection[]): string {
       `- **Updated**: ${c.updatedAt}`,
     ]
       .filter(Boolean)
-      .join("\n")
+      .join("\n"),
   );
 
   return truncate(lines.join("\n\n"));
@@ -128,13 +135,17 @@ export function formatScreenDetail(params: {
     lines.push(`- **Elements**: ${params.screenElements.join(", ")}`);
   }
   if (params.dimensions) {
-    lines.push(`- **Dimensions**: ${params.dimensions.width}x${params.dimensions.height}`);
+    lines.push(
+      `- **Dimensions**: ${params.dimensions.width}x${params.dimensions.height}`,
+    );
   }
   if (params.dominantColors && params.dominantColors.length > 0) {
     lines.push(`- **Dominant Colors**: ${params.dominantColors.join(", ")}`);
   }
   lines.push(`- **Image format**: ${params.mimeType}`);
-  lines.push(`- **Image size**: ${(params.imageSizeBytes / 1024).toFixed(1)} KB`);
+  lines.push(
+    `- **Image size**: ${(params.imageSizeBytes / 1024).toFixed(1)} KB`,
+  );
   lines.push(`- **Source URL**: ${params.screenUrl}`);
 
   return lines.join("\n");

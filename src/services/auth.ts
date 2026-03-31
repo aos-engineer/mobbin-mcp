@@ -38,7 +38,7 @@ export class MobbinAuth {
   private constructor(
     session: SupabaseSession,
     rawCookie: string,
-    onSessionRefreshed?: (session: SupabaseSession) => void
+    onSessionRefreshed?: (session: SupabaseSession) => void,
   ) {
     this.session = session;
     this.rawCookie = rawCookie;
@@ -52,7 +52,7 @@ export class MobbinAuth {
 
   static fromSession(
     session: SupabaseSession,
-    onSessionRefreshed?: (session: SupabaseSession) => void
+    onSessionRefreshed?: (session: SupabaseSession) => void,
   ): MobbinAuth {
     const rawCookie = MobbinAuth.buildCookieString(session);
     return new MobbinAuth(session, rawCookie, onSessionRefreshed);
@@ -106,14 +106,14 @@ export class MobbinAuth {
         body: JSON.stringify({
           refresh_token: this.session.refresh_token,
         }),
-      }
+      },
     );
 
     if (!res.ok) {
       const text = await res.text().catch(() => "");
       throw new Error(
         `Token refresh failed (${res.status}): ${text.substring(0, 200)}. ` +
-          "Run 'npx mobbin-mcp auth' to re-authenticate."
+          "Run 'npx mobbin-mcp auth' to re-authenticate.",
       );
     }
 
@@ -131,13 +131,15 @@ export class MobbinAuth {
    * The session is split across two cookies (`.0` and `.1`) and URL-encoded.
    */
   private static parseSessionFromCookie(cookie: string): SupabaseSession {
-    const cookies = cookie.split("; ").reduce<Record<string, string>>((acc, part) => {
-      const eqIdx = part.indexOf("=");
-      if (eqIdx > 0) {
-        acc[part.substring(0, eqIdx)] = part.substring(eqIdx + 1);
-      }
-      return acc;
-    }, {});
+    const cookies = cookie
+      .split("; ")
+      .reduce<Record<string, string>>((acc, part) => {
+        const eqIdx = part.indexOf("=");
+        if (eqIdx > 0) {
+          acc[part.substring(0, eqIdx)] = part.substring(eqIdx + 1);
+        }
+        return acc;
+      }, {});
 
     const chunk0 = cookies[`${SUPABASE_COOKIE_PREFIX}.0`] ?? "";
     const chunk1 = cookies[`${SUPABASE_COOKIE_PREFIX}.1`] ?? "";
@@ -148,7 +150,7 @@ export class MobbinAuth {
     } catch {
       throw new Error(
         `Failed to parse Supabase session from cookie. ` +
-          `Make sure MOBBIN_AUTH_COOKIE contains the '${SUPABASE_COOKIE_PREFIX}.0' and '.1' cookies.`
+          `Make sure MOBBIN_AUTH_COOKIE contains the '${SUPABASE_COOKIE_PREFIX}.0' and '.1' cookies.`,
       );
     }
   }

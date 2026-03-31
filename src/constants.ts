@@ -4,10 +4,20 @@ export const DEFAULT_PAGE_SIZE = 24;
 export const MAX_PAGE_SIZE = 50;
 export const CHARACTER_LIMIT = 25000;
 
-/** Public publishable key embedded in Mobbin's client JS. Required for Supabase auth API calls. */
-export const SUPABASE_ANON_KEY = "sb_publishable_LbI2-4spKrYx1xHKrI4YyQ_rC-csyUz";
+/**
+ * Public publishable key embedded in Mobbin's client JS. Required for Supabase auth API calls.
+ * To find this yourself: open mobbin.com, DevTools → Network → filter for "supabase" →
+ * check the `apikey` header on any request to ujasntkfphywizsdaapi.supabase.co.
+ */
+export const SUPABASE_ANON_KEY =
+  "sb_publishable_LbI2-4spKrYx1xHKrI4YyQ_rC-csyUz";
 
-/** Cookie name prefix used by Supabase for this project. */
+/**
+ * Cookie name prefix used by Supabase for this project.
+ * To find this yourself: log into mobbin.com → DevTools → Application → Cookies →
+ * look for cookies starting with `sb-<project-ref>-auth-token`. The project ref
+ * comes from the Supabase URL hostname (ujasntkfphywizsdaapi).
+ */
 export const SUPABASE_COOKIE_PREFIX = "sb-ujasntkfphywizsdaapi-auth-token";
 
 /** Refresh the token this many seconds before it actually expires. */
@@ -26,7 +36,8 @@ export const ALLOWED_IMAGE_HOSTS = [
 ];
 
 /** Bytescale CDN base for fetching screen images. */
-export const BYTESCALE_CDN_BASE = "https://bytescale.mobbin.com/FW25bBB/image/mobbin.com/prod";
+export const BYTESCALE_CDN_BASE =
+  "https://bytescale.mobbin.com/FW25bBB/image/mobbin.com/prod";
 
 /** Supabase storage path prefix that gets stripped when converting to CDN URLs. */
 export const SUPABASE_STORAGE_PREFIX = "/storage/v1/object/public/";

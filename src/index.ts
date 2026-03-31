@@ -5,7 +5,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import { MobbinAuth } from "./services/auth.js";
 import { MobbinApiClient } from "./services/api-client.js";
-import { formatApps, formatScreens, formatFlows, formatCollections } from "./utils/formatting.js";
+import { formatApps, formatScreens, formatFlows, formatCollections, formatScreenDetail } from "./utils/formatting.js";
 import { DEFAULT_PAGE_SIZE } from "./constants.js";
 import { readStoredSession, writeStoredSession } from "./utils/auth-store.js";
 
@@ -271,6 +271,54 @@ async function main() {
         .join("\n\n");
 
       return { content: [{ type: "text", text }] };
+    }
+  );
+
+  // --- Get Screen Detail ---
+  server.tool(
+    "mobbin_get_screen_detail",
+    "Fetch a full screenshot image and metadata for a specific screen. Use a screenUrl from search_screens or search_flows results. Returns the actual image so you can see the UI design.",
+    {
+      screen_url: z.string().url().describe("The screen image URL from a previous search result (screenUrl field)"),
+      screen_id: z.string().optional().describe("Screen ID from search results"),
+      app_name: z.string().optional().describe("App name from search results"),
+      screen_patterns: z.array(z.string()).optional().describe("UI patterns from search results"),
+      screen_elements: z.array(z.string()).optional().describe("UI elements from search results"),
+      dimensions: z.object({ width: z.number(), height: z.number() }).optional().describe("Image dimensions from search result metadata"),
+    },
+    async ({ screen_url, screen_id, app_name, screen_patterns, screen_elements, dimensions }) => {
+      try {
+        const { base64, mimeType, sizeBytes } = await client.fetchScreenImage(screen_url);
+
+        const metadataText = formatScreenDetail({
+          screenUrl: screen_url,
+          screenId: screen_id,
+          appName: app_name,
+          screenPatterns: screen_patterns,
+          screenElements: screen_elements,
+          dimensions,
+          imageSizeBytes: sizeBytes,
+          mimeType,
+        });
+
+        return {
+          content: [
+            { type: "text" as const, text: metadataText },
+            { type: "image" as const, data: base64, mimeType },
+          ],
+        };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: `Failed to fetch screen image: ${message}\n\nURL attempted: ${screen_url}`,
+            },
+          ],
+          isError: true,
+        };
+      }
     }
   );
 

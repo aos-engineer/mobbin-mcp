@@ -100,6 +100,42 @@ export function formatCollections(collections: Collection[]): string {
   return truncate(lines.join("\n\n"));
 }
 
+export function formatScreenDetail(params: {
+  screenUrl: string;
+  screenId?: string;
+  appName?: string;
+  screenPatterns?: string[];
+  screenElements?: string[];
+  dimensions?: { width: number; height: number };
+  imageSizeBytes: number;
+  mimeType: string;
+}): string {
+  const lines: string[] = [];
+
+  lines.push(`## Screen Detail`);
+
+  if (params.appName) {
+    lines.push(`- **App**: ${params.appName}`);
+  }
+  if (params.screenId) {
+    lines.push(`- **Screen ID**: ${params.screenId}`);
+  }
+  if (params.screenPatterns && params.screenPatterns.length > 0) {
+    lines.push(`- **Patterns**: ${params.screenPatterns.join(", ")}`);
+  }
+  if (params.screenElements && params.screenElements.length > 0) {
+    lines.push(`- **Elements**: ${params.screenElements.join(", ")}`);
+  }
+  if (params.dimensions) {
+    lines.push(`- **Dimensions**: ${params.dimensions.width}x${params.dimensions.height}`);
+  }
+  lines.push(`- **Image format**: ${params.mimeType}`);
+  lines.push(`- **Image size**: ${(params.imageSizeBytes / 1024).toFixed(1)} KB`);
+  lines.push(`- **Source URL**: ${params.screenUrl}`);
+
+  return lines.join("\n");
+}
+
 function truncate(text: string): string {
   if (text.length <= CHARACTER_LIMIT) return text;
   return (

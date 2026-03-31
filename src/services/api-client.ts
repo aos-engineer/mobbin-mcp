@@ -1,4 +1,4 @@
-import { MOBBIN_BASE_URL } from "../constants.js";
+import { MOBBIN_BASE_URL, ALLOWED_IMAGE_HOSTS, MAX_IMAGE_SIZE_BYTES, IMAGE_FETCH_TIMEOUT_MS, BYTESCALE_CDN_BASE, SUPABASE_STORAGE_PREFIX } from "../constants.js";
 import type {
   AppResult,
   ScreenResult,
@@ -236,5 +236,83 @@ export class MobbinApiClient {
       method: "POST",
       body: {},
     });
+  }
+
+  /**
+   * Convert a Supabase storage URL to its Bytescale CDN equivalent.
+   * Supabase storage URLs are not directly accessible — images are served via CDN.
+   *
+   * Input:  https://ujasntkfphywizsdaapi.supabase.co/storage/v1/object/public/content/app_screens/{uuid}.png
+   * Output: https://bytescale.mobbin.com/FW25bBB/image/mobbin.com/prod/content/app_screens/{uuid}.png?f=webp&w=1920&q=85&fit=shrink-cover
+   */
+  private toCdnUrl(imageUrl: string): string {
+    const parsed = new URL(imageUrl);
+
+    // Already a CDN URL — use as-is
+    if (parsed.hostname === "bytescale.mobbin.com") {
+      return imageUrl;
+    }
+
+    // Convert Supabase storage URL to CDN URL
+    const storageIdx = parsed.pathname.indexOf(SUPABASE_STORAGE_PREFIX);
+    if (storageIdx === -1) {
+      throw new Error(`Unrecognized Supabase URL format: ${imageUrl}`);
+    }
+
+    const storagePath = parsed.pathname.slice(storageIdx + SUPABASE_STORAGE_PREFIX.length);
+    return `${BYTESCALE_CDN_BASE}/${storagePath}?f=webp&w=1920&q=85&fit=shrink-cover`;
+  }
+
+  /**
+   * Fetch a screen image from its URL and return it as base64.
+   * Automatically converts Supabase storage URLs to Bytescale CDN URLs.
+   * No authentication required — these are public CDN assets.
+   */
+  async fetchScreenImage(imageUrl: string): Promise<{
+    base64: string;
+    mimeType: string;
+    sizeBytes: number;
+  }> {
+    const parsed = new URL(imageUrl);
+    if (!ALLOWED_IMAGE_HOSTS.includes(parsed.hostname)) {
+      throw new Error(
+        `Untrusted image host: ${parsed.hostname}. Only Supabase storage and Bytescale CDN URLs are supported.`
+      );
+    }
+
+    const fetchUrl = this.toCdnUrl(imageUrl);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), IMAGE_FETCH_TIMEOUT_MS);
+
+    try {
+      const res = await fetch(fetchUrl, { signal: controller.signal });
+
+      if (!res.ok) {
+        throw new Error(`Failed to fetch image: ${res.status} ${res.statusText} — ${fetchUrl}`);
+      }
+
+      const contentLength = res.headers.get("content-length");
+      if (contentLength && parseInt(contentLength, 10) > MAX_IMAGE_SIZE_BYTES) {
+        throw new Error(`Image too large (${contentLength} bytes). Max: ${MAX_IMAGE_SIZE_BYTES} bytes.`);
+      }
+
+      const buffer = await res.arrayBuffer();
+      if (buffer.byteLength > MAX_IMAGE_SIZE_BYTES) {
+        throw new Error(`Image too large (${buffer.byteLength} bytes). Max: ${MAX_IMAGE_SIZE_BYTES} bytes.`);
+      }
+
+      let mimeType = res.headers.get("content-type")?.split(";")[0]?.trim() || "";
+      if (!mimeType || mimeType === "application/octet-stream") {
+        if (fetchUrl.includes("f=webp")) mimeType = "image/webp";
+        else if (fetchUrl.endsWith(".png")) mimeType = "image/png";
+        else if (fetchUrl.endsWith(".jpg") || fetchUrl.endsWith(".jpeg")) mimeType = "image/jpeg";
+        else mimeType = "image/png";
+      }
+
+      const base64 = Buffer.from(buffer).toString("base64");
+      return { base64, mimeType, sizeBytes: buffer.byteLength };
+    } finally {
+      clearTimeout(timeoutId);
+    }
   }
 }

@@ -16,6 +16,8 @@ Mobbin has no public API. This server was built by reverse-engineering their int
 | `mobbin_list_collections` | List your saved collections |
 | `mobbin_get_filters` | Get all available filter values (categories, patterns, elements, actions) |
 
+> **Note:** Screenshots and screenshot context are not yet available. Tools return metadata (app names, categories, URLs, etc.) but do not provide actual screenshot image content to the model.
+
 ## Setup
 
 ### Prerequisites

@@ -33,19 +33,22 @@ npm install
 
 ### 2. Authenticate
 
-**Option A: Email OTP (recommended)**
-
-Run the auth command and follow the prompts:
+**Option A: CLI command (recommended)**
 
 ```bash
 npx tsx src/index.ts auth
 ```
 
-This sends a one-time code to your Mobbin email. Enter the code, and your session is saved to `~/.mobbin-mcp/auth.json`. No browser or cookie extraction needed.
+This will walk you through copying your session cookie from the browser:
 
-**Option B: Cookie (fallback)**
+1. Open [mobbin.com](https://mobbin.com) and log in
+2. Open the browser console (`Cmd+Option+J`)
+3. Run `copy(document.cookie)` to copy your cookies to clipboard
+4. Paste into the CLI prompt
 
-If OTP doesn't work for your account, you can extract your session cookie manually:
+Your session is saved to `~/.mobbin-mcp/auth.json` and automatically refreshed.
+
+**Option B: Environment variable (manual)**
 
 1. Open [mobbin.com](https://mobbin.com) in Chrome and log in
 2. Open DevTools (`Cmd+Option+I`) → **Application** tab → **Cookies** → `https://mobbin.com`
@@ -57,13 +60,17 @@ If OTP doesn't work for your account, you can extract your session cookie manual
 sb-ujasntkfphywizsdaapi-auth-token.0=<value0>; sb-ujasntkfphywizsdaapi-auth-token.1=<value1>
 ```
 
+6. Set `MOBBIN_AUTH_COOKIE` to that value (see step 3 below)
+
 ### 3. Add to Claude Code
 
 ```bash
 claude mcp add mobbin -- npx tsx /path/to/mobbin-mcp/src/index.ts
 ```
 
-If using the cookie method, add the env var to your `~/.claude/settings.json`:
+If you used the CLI auth command (Option A), no additional config is needed — the server reads from `~/.mobbin-mcp/auth.json` automatically.
+
+If using the environment variable (Option B), add the env var to your `~/.claude/settings.json`:
 
 ```json
 {
@@ -78,8 +85,6 @@ If using the cookie method, add the env var to your `~/.claude/settings.json`:
   }
 }
 ```
-
-With the OTP method, no `env` block is needed — the server reads from `~/.mobbin-mcp/auth.json` automatically.
 
 ### Alternative: Claude Desktop
 
@@ -107,7 +112,7 @@ Add to your Claude Desktop config (`~/Library/Application Support/Claude/claude_
 
 ## How it works
 
-Mobbin is a Next.js app backed by Supabase. This server calls Mobbin's internal API routes (`/api/content/search-apps`, `/api/content/search-screens`, etc.) using your session cookie for authentication. Tokens are automatically refreshed via Supabase's `/auth/v1/token` endpoint before they expire, and persisted back to `~/.mobbin-mcp/auth.json` when using the OTP auth method.
+Mobbin is a Next.js app backed by Supabase. This server calls Mobbin's internal API routes (`/api/content/search-apps`, `/api/content/search-screens`, etc.) using your session cookie for authentication. Tokens are automatically refreshed via Supabase's `/auth/v1/token` endpoint before they expire, and persisted back to `~/.mobbin-mcp/auth.json` when using the CLI auth method.
 
 ## Project structure
 
@@ -117,7 +122,7 @@ src/
   constants.ts          # API URLs, keys, and config
   types.ts              # TypeScript interfaces for all Mobbin data models
   cli/
-    auth.ts             # Interactive email OTP authentication flow
+    auth.ts             # Interactive CLI authentication flow
   services/
     auth.ts             # Token parsing, expiry checks, and auto-refresh
     api-client.ts       # HTTP client for all Mobbin API endpoints

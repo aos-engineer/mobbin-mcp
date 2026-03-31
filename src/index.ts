@@ -285,10 +285,16 @@ async function main() {
       screen_patterns: z.array(z.string()).optional().describe("UI patterns from search results"),
       screen_elements: z.array(z.string()).optional().describe("UI elements from search results"),
       dimensions: z.object({ width: z.number(), height: z.number() }).optional().describe("Image dimensions from search result metadata"),
+      extract_colors: z.boolean().optional().default(false).describe("Extract dominant hex colors from the screenshot"),
     },
-    async ({ screen_url, screen_id, app_name, screen_patterns, screen_elements, dimensions }) => {
+    async ({ screen_url, screen_id, app_name, screen_patterns, screen_elements, dimensions, extract_colors }) => {
       try {
-        const { base64, mimeType, sizeBytes } = await client.fetchScreenImage(screen_url);
+        const { base64, mimeType, sizeBytes, buffer } = await client.fetchScreenImage(screen_url);
+
+        let dominantColors: string[] | undefined;
+        if (extract_colors) {
+          dominantColors = await client.extractColors(buffer);
+        }
 
         const metadataText = formatScreenDetail({
           screenUrl: screen_url,
@@ -299,6 +305,7 @@ async function main() {
           dimensions,
           imageSizeBytes: sizeBytes,
           mimeType,
+          dominantColors,
         });
 
         return {

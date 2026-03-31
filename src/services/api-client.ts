@@ -1,3 +1,4 @@
+import sharp from "sharp";
 import { MOBBIN_BASE_URL, ALLOWED_IMAGE_HOSTS, MAX_IMAGE_SIZE_BYTES, IMAGE_FETCH_TIMEOUT_MS, BYTESCALE_CDN_BASE, SUPABASE_STORAGE_PREFIX } from "../constants.js";
 import type {
   AppResult,
@@ -272,6 +273,7 @@ export class MobbinApiClient {
     base64: string;
     mimeType: string;
     sizeBytes: number;
+    buffer: Buffer;
   }> {
     const parsed = new URL(imageUrl);
     if (!ALLOWED_IMAGE_HOSTS.includes(parsed.hostname)) {
@@ -310,9 +312,38 @@ export class MobbinApiClient {
       }
 
       const base64 = Buffer.from(buffer).toString("base64");
-      return { base64, mimeType, sizeBytes: buffer.byteLength };
+      return { base64, mimeType, sizeBytes: buffer.byteLength, buffer: Buffer.from(buffer) };
     } finally {
       clearTimeout(timeoutId);
     }
+  }
+
+  /**
+   * Extract dominant colors from a screen image buffer.
+   * Returns an array of hex color strings sorted by frequency.
+   */
+  async extractColors(imageBuffer: Buffer, maxColors: number = 8): Promise<string[]> {
+    // Resize to small thumbnail for faster color sampling
+    const { data, info } = await sharp(imageBuffer)
+      .resize(64, 64, { fit: "cover" })
+      .removeAlpha()
+      .raw()
+      .toBuffer({ resolveWithObject: true });
+
+    // Count pixel colors, quantized to reduce noise (round to nearest 8)
+    const colorCounts = new Map<string, number>();
+    for (let i = 0; i < data.length; i += 3) {
+      const r = Math.min(Math.round(data[i] / 8) * 8, 248);
+      const g = Math.min(Math.round(data[i + 1] / 8) * 8, 248);
+      const b = Math.min(Math.round(data[i + 2] / 8) * 8, 248);
+      const hex = `#${r.toString(16).padStart(2, "0")}${g.toString(16).padStart(2, "0")}${b.toString(16).padStart(2, "0")}`;
+      colorCounts.set(hex, (colorCounts.get(hex) || 0) + 1);
+    }
+
+    // Sort by frequency and return top colors
+    return Array.from(colorCounts.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, maxColors)
+      .map(([hex]) => hex);
   }
 }

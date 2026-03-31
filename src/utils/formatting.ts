@@ -109,6 +109,7 @@ export function formatScreenDetail(params: {
   dimensions?: { width: number; height: number };
   imageSizeBytes: number;
   mimeType: string;
+  dominantColors?: string[];
 }): string {
   const lines: string[] = [];
 
@@ -128,6 +129,9 @@ export function formatScreenDetail(params: {
   }
   if (params.dimensions) {
     lines.push(`- **Dimensions**: ${params.dimensions.width}x${params.dimensions.height}`);
+  }
+  if (params.dominantColors && params.dominantColors.length > 0) {
+    lines.push(`- **Dominant Colors**: ${params.dominantColors.join(", ")}`);
   }
   lines.push(`- **Image format**: ${params.mimeType}`);
   lines.push(`- **Image size**: ${(params.imageSizeBytes / 1024).toFixed(1)} KB`);

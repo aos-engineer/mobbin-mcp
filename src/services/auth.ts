@@ -136,7 +136,13 @@ export class MobbinAuth {
       return acc;
     }, {});
 
-    const chunk0 = cookies[`${SUPABASE_COOKIE_PREFIX}.0`] ?? "";
+    // Supabase only splits the session into `.0`/`.1` chunks when the JSON
+    // exceeds the ~4KB single-cookie limit. Smaller sessions are written to
+    // the bare cookie name with no suffix, so fall back to that.
+    const chunk0 =
+      cookies[`${SUPABASE_COOKIE_PREFIX}.0`] ??
+      cookies[SUPABASE_COOKIE_PREFIX] ??
+      "";
     const chunk1 = cookies[`${SUPABASE_COOKIE_PREFIX}.1`] ?? "";
     const combined = decodeURIComponent(chunk0 + chunk1);
 

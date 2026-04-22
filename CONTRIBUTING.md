@@ -7,7 +7,7 @@ Thanks for your interest in contributing! Here's how to get started.
 1. Clone the repo and install dependencies:
 
 ```bash
-git clone https://github.com/sireskay/mobbin-mcp.git
+git clone https://github.com/aos-engineer/mobbin-mcp.git
 cd mobbin-mcp
 npm install
 ```

@@ -127,13 +127,13 @@ Contributor and fallback paths:
 ### Option A: Run From GitHub
 
 ```bash
-npx -y github:sireskay/mobbin-mcp auth
+npx -y github:aos-engineer/mobbin-mcp auth
 ```
 
 ### Option B: Run From A Local Checkout
 
 ```bash
-git clone https://github.com/sireskay/mobbin-mcp.git
+git clone https://github.com/aos-engineer/mobbin-mcp.git
 cd mobbin-mcp
 npm install
 npm run build
@@ -151,7 +151,7 @@ npx -y @aos-engineer/mobbin-mcp auth
 **Option B: GitHub fallback**
 
 ```bash
-npx -y github:sireskay/mobbin-mcp auth
+npx -y github:aos-engineer/mobbin-mcp auth
 ```
 
 **Option C: local checkout**
@@ -208,7 +208,7 @@ claude mcp add mobbin -- npx -y @aos-engineer/mobbin-mcp
 GitHub fallback:
 
 ```bash
-claude mcp add mobbin -- npx -y github:sireskay/mobbin-mcp
+claude mcp add mobbin -- npx -y github:aos-engineer/mobbin-mcp
 ```
 
 If you used the CLI auth command (Option A), no additional config is needed — the server reads from `~/.mobbin-mcp/auth.json` automatically.
@@ -224,7 +224,7 @@ claude mcp add mobbin -e MOBBIN_AUTH_COOKIE="sb-ujasntkfphywizsdaapi-auth-token.
 GitHub fallback:
 
 ```bash
-claude mcp add mobbin -e MOBBIN_AUTH_COOKIE="sb-ujasntkfphywizsdaapi-auth-token.0=...; sb-ujasntkfphywizsdaapi-auth-token.1=..." -- npx -y github:sireskay/mobbin-mcp
+claude mcp add mobbin -e MOBBIN_AUTH_COOKIE="sb-ujasntkfphywizsdaapi-auth-token.0=...; sb-ujasntkfphywizsdaapi-auth-token.1=..." -- npx -y github:aos-engineer/mobbin-mcp
 ```
 
 ### 3. Add to Codex

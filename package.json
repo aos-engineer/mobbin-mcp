@@ -12,6 +12,7 @@
   ],
   "scripts": {
     "build": "tsc",
+    "prepare": "npm run build",
     "start": "tsx src/index.ts",
     "dev": "tsx --watch src/index.ts",
     "test": "npm run build && node --test test/**/*.test.js",

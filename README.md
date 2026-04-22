@@ -1,8 +1,51 @@
 # Mobbin MCP Server
 
-An unofficial MCP server that connects to [Mobbin](https://mobbin.com) — the design inspiration platform with 600k+ screens from 1,100+ apps. Search apps, browse screenshots, explore user flows, and access your saved collections directly from Claude, Codex, or any other MCP-capable client.
+A local-first MCP server for [Mobbin](https://mobbin.com) that now does two jobs:
+
+1. Search Mobbin's reverse-engineered internal API for apps, screens, flows, filters, collections, and screenshots.
+2. Turn Mobbin references and mobbing-session notes into a project-aware capture and reference system that agents can search, export, and reuse.
 
 Mobbin has no public API. This server was built by reverse-engineering their internal endpoints.
+
+## What It Does Now
+
+- search Mobbin apps, screens, flows, collections, and filters
+- fetch full screenshots and optional dominant colors
+- auto-detect the active repository from git, env vars, or cwd
+- capture design references, implementation notes, decisions, and flow steps into a local project store
+- search, update, delete, catalog, import, and export captured artifacts
+- generate visual contact sheets from saved screens and flows
+- compute perceptual hashes and find visually similar captured artifacts
+- generate PR-ready reference markdown and diff-ready feature review reports
+- seed the local store from Mobbin collection metadata
+- optionally sync the local project store with a filesystem-backed shared store
+- generate prompt-ready implementation, analysis, onboarding, and agent-specific context packs
+- support Claude Code, Codex, Pi-style conversational agents, and Mem Palace export workflows through the same MCP surface
+
+## What Changed From The Original Fork
+
+The original upstream project was mainly a Mobbin browser for Claude.
+
+This repo now adds:
+
+- project-aware local artifact storage
+- capture CRUD and cataloging
+- MCP resources and reusable prompts
+- multi-agent context generation
+- export/import workflows for reuse across sessions and systems
+- diagnostics and tests
+
+Changed assumptions:
+
+- no longer Claude-only
+- no longer search-only
+- no longer limited to transient one-off inspiration lookup
+
+Removed limitations from the old shape:
+
+- no requirement to manually scope references per project
+- no dependence on ad hoc prompt writing every time you want to reuse a flow
+- no lack of MCP resources/prompts for downstream agents
 
 ## Tools
 
@@ -35,6 +78,12 @@ Mobbin has no public API. This server was built by reverse-engineering their int
 | `mobbin_import_captured_artifacts` | Import artifacts from a previous export |
 | `mobbin_generate_feature_prompt` | Generate implementation, analysis, or onboarding prompts from captured artifacts |
 | `mobbin_generate_agent_context` | Generate agent-specific context for Claude Code, Codex, Pi, or Mem Palace |
+| `mobbin_generate_flow_contact_sheet` | Generate a stitched PNG contact sheet from saved artifacts |
+| `mobbin_find_similar_artifacts` | Find visually similar artifacts using perceptual hashes |
+| `mobbin_generate_pr_reference` | Generate PR-ready markdown from selected references |
+| `mobbin_sync_collections_to_artifacts` | Seed the local store from Mobbin collection metadata |
+| `mobbin_generate_feature_review` | Generate a diff-ready intended-vs-actual feature review |
+| `mobbin_sync_shared_store` | Push, pull, or merge the local project store with a shared filesystem store |
 
 ## Resources
 
@@ -94,6 +143,16 @@ sb-ujasntkfphywizsdaapi-auth-token.0=<value0>; sb-ujasntkfphywizsdaapi-auth-toke
 
 6. Set `MOBBIN_AUTH_COOKIE` to that value (see step 2 below)
 
+### Environment variables
+
+| Variable | Purpose |
+| --- | --- |
+| `MOBBIN_AUTH_COOKIE` | Manual auth cookie input |
+| `MOBBIN_DATA_DIR` | Override the default data directory |
+| `MOBBIN_AUTH_FILE` | Override the auth session file path |
+| `MOBBIN_PROJECT_ROOT` | Explicit project root for capture storage |
+| `PROJECT_ROOT` | Alternative explicit project root |
+
 ### 2. Add to Claude Code
 
 ```bash
@@ -135,6 +194,11 @@ Add to your Claude Desktop config (`~/Library/Application Support/Claude/claude_
 - "Generate a Codex-ready implementation prompt for the checkout feature using our saved `checkout` references"
 - "Export our saved growth-onboarding captures as Mem Palace JSONL"
 - "Give me an onboarding brief for the billing area using everything tagged `billing`"
+- "Generate a contact sheet for our saved onboarding references"
+- "Find visually similar artifacts to this saved checkout screen"
+- "Generate PR reference markdown for the billing redesign work"
+- "Sync my Mobbin collections into this project's local artifact store"
+- "Compare intended onboarding references against the actual shipped onboarding artifacts"
 
 ## How it works
 
@@ -144,12 +208,39 @@ Screen images are served through Mobbin's Bytescale CDN. The `mobbin_get_screen_
 
 Captured artifacts are stored locally in a project-aware index under `~/.mobbin-mcp/projects/<project-id>/artifacts.json`. The server auto-detects the active repository from git when possible, then falls back to the current working directory. This makes saved Mobbin references portable across MCP clients while still being scoped to the project you are working on.
 
+Repeated Mobbin reads are cached in-process for short periods to reduce redundant API traffic for common searches, autocomplete, filters, collections, and popular app lookups.
+
 Artifacts can include:
 
 - feature area, journey, session name, and participants
 - implementation hints and decision logs
 - ordered steps with patterns, elements, and hotspot geometry
 - references to URLs or other saved artifacts
+- collection links and preview-screen derived references
+- cached visual hashes for similarity search
+
+## Recommended Workflow
+
+1. Search Mobbin for relevant apps, screens, and flows.
+2. Inspect screenshots with `mobbin_get_screen_detail`.
+3. Save durable references with `mobbin_capture_artifact`.
+4. Tag and organize them with feature area, journey, and decision notes.
+5. Review the saved corpus with `mobbin_search_captured_artifacts` and `mobbin_get_capture_catalog`.
+6. Generate contact sheets, PR reference packs, or feature review reports as needed.
+7. Generate implementation, analysis, onboarding, or agent-specific context from the saved artifacts.
+8. Optionally sync the project store with a shared filesystem-backed store for team reuse.
+
+## Storage Layout
+
+```text
+~/.mobbin-mcp/
+  auth.json
+  projects/
+    <project-id>/
+      artifacts.json
+```
+
+The server is local-first. It does not require a shared backend to be useful, but captured artifacts can be exported and re-imported across machines, repos, or agents.
 
 ## Development
 
@@ -173,18 +264,35 @@ Additional docs:
 src/
   index.ts              # MCP server entry point, CLI routing, and tool registration
   constants.ts          # API URLs, keys, and config
-  types.ts              # TypeScript interfaces for all Mobbin data models
+  types.ts              # TypeScript interfaces for Mobbin models and captured artifacts
   cli/
     auth.ts             # Interactive CLI authentication flow
   services/
     auth.ts             # Token parsing, expiry checks, and auto-refresh
-    api-client.ts       # HTTP client for all Mobbin API endpoints
+    api-client.ts       # HTTP client for all Mobbin API endpoints with caching/timeouts
   utils/
     auth-store.ts       # Persistent session storage (~/.mobbin-mcp/auth.json)
-    artifact-store.ts   # Project-aware capture index for saved references and prompt generation
+    artifact-store.ts   # Project-aware capture store, search, import/export, and prompt generation
     formatting.ts       # Markdown formatters for tool responses
     project-context.ts  # Git / cwd auto-discovery for repository-aware capture
+docs/
+  ARCHITECTURE.md       # Current architecture and MCP surface
+  PORTABILITY.md        # Agent portability strategy
+  WORKFLOWS.md          # Recommended usage patterns
+  IMPLEMENTATION_IDEAS.md # Next expansion ideas
+test/
+  *.test.js             # Node test coverage for capture store and project detection
 ```
+
+## Roadmap
+
+Priority next features:
+
+1. Item-level collection sync once additional Mobbin collection-content endpoints are discovered.
+2. Embedding-backed or hybrid visual/text similarity ranking beyond perceptual hashes.
+3. Automatic screenshot capture of shipped application flows for direct intended-vs-actual comparison.
+4. Shared HTTP-backed team storage instead of filesystem-only shared sync.
+5. Design-system extraction from saved references into reusable implementation assets.
 
 ## License
 

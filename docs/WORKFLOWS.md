@@ -13,13 +13,15 @@
 2. Review the project catalog with `mobbin_get_capture_catalog`.
 3. Generate a prompt with `mobbin_generate_feature_prompt` or `mobbin_feature_implementation_prompt`.
 4. Hand the output directly to Claude Code or Codex.
+5. Attach `mobbin_generate_pr_reference` output to the PR when the feature is ready for review.
 
 ## Feature Analysis
 
 1. Capture intended references and shipped screenshots separately.
 2. Filter artifacts by feature area or tags.
 3. Generate an analysis prompt with mode `analysis`.
-4. Compare intended versus actual behavior in the implementation repo.
+4. Generate a diff-ready report with `mobbin_generate_feature_review`.
+5. Compare intended versus actual behavior in the implementation repo.
 
 ## Onboarding
 
@@ -32,3 +34,15 @@
 1. Select relevant artifacts for a feature or product area.
 2. Export with `mem_palace_jsonl` or generate `mem_palace` agent context.
 3. Ingest the output into your memory layer with project metadata preserved.
+
+## Visual Review
+
+1. Select captured artifacts that represent a flow or feature area.
+2. Generate a board with `mobbin_generate_flow_contact_sheet`.
+3. Use `mobbin_find_similar_artifacts` to discover visually related references that may have been missed by text search.
+
+## Shared Store Sync
+
+1. Set `MOBBIN_SHARED_STORE_DIR` to a shared filesystem path.
+2. Push your local artifacts with `mobbin_sync_shared_store`.
+3. Pull or merge on another machine or teammate environment using the same project ID.

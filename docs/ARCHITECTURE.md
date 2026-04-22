@@ -49,6 +49,12 @@ This repository is now a local MCP server that does two jobs:
 - `mobbin_import_captured_artifacts`
 - `mobbin_generate_feature_prompt`
 - `mobbin_generate_agent_context`
+- `mobbin_generate_flow_contact_sheet`
+- `mobbin_find_similar_artifacts`
+- `mobbin_generate_pr_reference`
+- `mobbin_sync_collections_to_artifacts`
+- `mobbin_generate_feature_review`
+- `mobbin_sync_shared_store`
 
 ### Resources
 

@@ -254,6 +254,20 @@ export interface CapturedArtifactReference {
   note?: string;
 }
 
+export interface ArtifactCollectionLink {
+  collectionId: string;
+  name: string;
+  isPublic: boolean;
+  counts: {
+    mobileApps: number;
+    mobileScreens: number;
+    mobileFlows: number;
+    webApps: number;
+    webScreens: number;
+    webFlows: number;
+  };
+}
+
 export interface CapturedArtifact {
   id: string;
   type: CapturedArtifactType;
@@ -271,7 +285,9 @@ export interface CapturedArtifact {
   implementationHints: string[];
   decisions: CapturedArtifactDecision[];
   references: CapturedArtifactReference[];
+  collections: ArtifactCollectionLink[];
   steps: CapturedArtifactStep[];
+  visualHashes: string[];
   sourceUrls: string[];
   screenUrl?: string;
   flowName?: string;
@@ -302,4 +318,9 @@ export interface ProjectArtifactCatalog {
 
 export type AgentTarget = "claude_code" | "codex" | "pi" | "mem_palace";
 
-export type ArtifactExportFormat = "json" | "markdown" | "prompt_pack" | "mem_palace_jsonl";
+export type ArtifactExportFormat =
+  | "json"
+  | "markdown"
+  | "prompt_pack"
+  | "mem_palace_jsonl"
+  | "pr_markdown";

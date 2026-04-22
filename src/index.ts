@@ -13,8 +13,10 @@ import {
   buildAnalysisPrompt,
   buildArtifactCatalog,
   buildAgentContext,
+  buildFeatureReviewMarkdown,
   buildImplementationPrompt,
   buildOnboardingPrompt,
+  buildPrReferenceMarkdown,
   createArtifact,
   deleteArtifact,
   exportArtifacts,
@@ -23,6 +25,7 @@ import {
   importArtifacts,
   loadProjectArtifacts,
   searchArtifacts,
+  seedArtifactsFromCollections,
   updateArtifact,
   upsertArtifact,
 } from "./utils/artifact-store.js";
@@ -33,6 +36,13 @@ import {
   formatScreenDetail,
   formatScreens,
 } from "./utils/formatting.js";
+import { syncSharedStore } from "./utils/shared-store.js";
+import {
+  buildContactSheet,
+  collectArtifactVisualCandidates,
+  computePerceptualHash,
+  findSimilarityMatches,
+} from "./utils/visuals.js";
 
 const artifactTypeValues = [
   "screen",
@@ -53,8 +63,15 @@ const agentTargetValues = [
 const artifactTypeSchema = z.enum(artifactTypeValues);
 const agentTargetSchema = z.enum(agentTargetValues);
 const artifactSourceSchema = z.enum(["mobbin", "manual", "derived"]);
-const exportFormatSchema = z.enum(["json", "markdown", "prompt_pack", "mem_palace_jsonl"]);
+const exportFormatSchema = z.enum([
+  "json",
+  "markdown",
+  "prompt_pack",
+  "mem_palace_jsonl",
+  "pr_markdown",
+]);
 const promptModeSchema = z.enum(["implementation", "analysis", "onboarding"]);
+const sharedSyncDirectionSchema = z.enum(["push", "pull", "merge"]);
 
 const artifactStepSchema = z.object({
   order: z.number().min(0).optional().describe("0-indexed step order"),
@@ -251,6 +268,55 @@ async function main() {
       artifacts: params.artifacts,
       projectName: params.projectName,
     });
+  };
+
+  const ensureArtifactVisualHashes = async (
+    artifact: CapturedArtifact,
+    projectPath?: string,
+  ): Promise<CapturedArtifact> => {
+    if (artifact.visualHashes.length > 0) {
+      return artifact;
+    }
+
+    const candidates = collectArtifactVisualCandidates(artifact).slice(0, 6);
+    if (candidates.length === 0) {
+      return artifact;
+    }
+
+    const hashes = new Set<string>(artifact.visualHashes);
+    for (const candidate of candidates) {
+      try {
+        const image = await client.fetchScreenImage(candidate.imageUrl);
+        hashes.add(await computePerceptualHash(image.buffer));
+      } catch {
+        // Ignore individual image failures and keep processing the remaining candidates.
+      }
+    }
+
+    if (hashes.size === artifact.visualHashes.length) {
+      return artifact;
+    }
+
+    const updated = updateArtifact(
+      artifact.id,
+      {
+        visualHashes: Array.from(hashes),
+      },
+      projectPath,
+    );
+
+    return updated.artifact ?? artifact;
+  };
+
+  const ensureVisualHashesForArtifacts = async (
+    artifacts: CapturedArtifact[],
+    projectPath?: string,
+  ): Promise<CapturedArtifact[]> => {
+    const resolved: CapturedArtifact[] = [];
+    for (const artifact of artifacts) {
+      resolved.push(await ensureArtifactVisualHashes(artifact, projectPath));
+    }
+    return resolved;
   };
 
   server.registerResource(
@@ -1369,6 +1435,365 @@ async function main() {
           output,
         },
       };
+    },
+  );
+
+  server.registerTool(
+    "mobbin_generate_flow_contact_sheet",
+    {
+      title: "Generate Flow Contact Sheet",
+      description:
+        "Generate a stitched PNG contact sheet from captured artifact screens and flow steps for review and reference sharing.",
+      inputSchema: {
+        artifact_ids: z.array(z.string()).optional().describe("Optional explicit artifact IDs"),
+        query: z.string().optional().describe("Optional search query"),
+        tags: z.array(z.string()).optional().describe("Optional required tags"),
+        type: artifactTypeSchema.optional().describe("Optional artifact type filter"),
+        app_name: z.string().optional().describe("Optional source app filter"),
+        feature_area: z.string().optional().describe("Optional feature-area filter"),
+        limit: z.number().min(1).max(12).default(6).describe("Maximum artifacts to include"),
+        columns: z.number().min(1).max(6).default(3).describe("Number of columns in the contact sheet"),
+        project_path: z.string().optional().describe("Optional explicit project path override"),
+      },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: true,
+      },
+    },
+    async ({ artifact_ids, query, tags, type, app_name, feature_area, limit, columns, project_path }) => {
+      const { project, artifacts } = selectArtifacts({
+        artifact_ids,
+        query,
+        tags,
+        type,
+        app_name,
+        feature_area,
+        limit,
+        project_path,
+      });
+
+      const candidates = artifacts.flatMap((artifact) => collectArtifactVisualCandidates(artifact)).slice(0, 24);
+      if (candidates.length === 0) {
+        return {
+          content: [{ type: "text", text: "No screen URLs were found in the selected artifacts." }],
+          isError: true,
+        };
+      }
+
+      const items: Array<{ label: string; buffer: Buffer }> = [];
+      for (const candidate of candidates) {
+        try {
+          const image = await client.fetchScreenImage(candidate.imageUrl);
+          items.push({ label: candidate.label, buffer: image.buffer });
+        } catch {
+          // Ignore failed fetches and continue building a partial contact sheet.
+        }
+      }
+
+      if (items.length === 0) {
+        return {
+          content: [{ type: "text", text: "Unable to fetch any images for the selected artifacts." }],
+          isError: true,
+        };
+      }
+
+      const buffer = await buildContactSheet({
+        items,
+        columns,
+      });
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Generated a contact sheet for ${items.length} images from ${artifacts.length} artifacts in ${project.projectName}.`,
+          },
+          {
+            type: "image",
+            data: buffer.toString("base64"),
+            mimeType: "image/png",
+          },
+        ],
+        structuredContent: {
+          project,
+          artifactCount: artifacts.length,
+          imageCount: items.length,
+        },
+      };
+    },
+  );
+
+  server.registerTool(
+    "mobbin_find_similar_artifacts",
+    {
+      title: "Find Similar Artifacts",
+      description:
+        "Compute visual hashes and find visually similar captured artifacts using perceptual-hash distance.",
+      inputSchema: {
+        artifact_id: z.string().optional().describe("Captured artifact ID to use as the visual reference"),
+        screen_url: z.string().url().optional().describe("Optional direct screen URL instead of an artifact ID"),
+        max_distance: z.number().min(0).max(64).default(8).describe("Maximum Hamming distance"),
+        limit: z.number().min(1).max(20).default(8).describe("Maximum similar artifacts to return"),
+        project_path: z.string().optional().describe("Optional explicit project path override"),
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: true,
+      },
+    },
+    async ({ artifact_id, screen_url, max_distance, limit, project_path }) => {
+      if (!artifact_id && !screen_url) {
+        return {
+          content: [{ type: "text", text: "Provide either artifact_id or screen_url." }],
+          isError: true,
+        };
+      }
+
+      const index = loadProjectArtifacts(project_path);
+      const artifactsWithHashes = await ensureVisualHashesForArtifacts(index.artifacts, project_path);
+
+      let targetHashes: string[] = [];
+      let targetArtifactId: string | undefined;
+
+      if (artifact_id) {
+        const targetArtifact = artifactsWithHashes.find((artifact) => artifact.id === artifact_id);
+        if (!targetArtifact) {
+          return {
+            content: [{ type: "text", text: `Artifact not found: ${artifact_id}` }],
+            isError: true,
+          };
+        }
+        targetHashes = targetArtifact.visualHashes;
+        targetArtifactId = targetArtifact.id;
+      } else if (screen_url) {
+        const image = await client.fetchScreenImage(screen_url);
+        targetHashes = [await computePerceptualHash(image.buffer)];
+      }
+
+      if (targetHashes.length === 0) {
+        return {
+          content: [{ type: "text", text: "No visual hashes could be computed for the selected reference." }],
+          isError: true,
+        };
+      }
+
+      const matches = findSimilarityMatches({
+        artifacts: artifactsWithHashes,
+        targetHashes,
+        artifactIdToExclude: targetArtifactId,
+        maxDistance: max_distance,
+        limit,
+      });
+
+      const text =
+        matches.length > 0
+          ? matches
+              .map(
+                (match, index) =>
+                  `${index + 1}. **${match.artifact.title}** — distance ${match.distance}\n   ID: ${match.artifact.id}\n   Type: ${match.artifact.type}\n   App: ${match.artifact.appName ?? "unknown"}`,
+              )
+              .join("\n\n")
+          : "No visually similar artifacts found.";
+
+      return {
+        content: [{ type: "text", text }],
+        structuredContent: {
+          project: index.project,
+          targetHashes,
+          matches,
+        },
+      };
+    },
+  );
+
+  server.registerTool(
+    "mobbin_generate_pr_reference",
+    {
+      title: "Generate PR Reference",
+      description:
+        "Generate PR-ready markdown linking selected design references to an implementation change.",
+      inputSchema: {
+        title: z.string().min(3).describe("PR reference title"),
+        objective: z.string().min(10).describe("Implementation objective or PR summary"),
+        artifact_ids: z.array(z.string()).optional().describe("Optional explicit artifact IDs"),
+        query: z.string().optional().describe("Optional search query"),
+        tags: z.array(z.string()).optional().describe("Optional required tags"),
+        type: artifactTypeSchema.optional().describe("Optional artifact type filter"),
+        app_name: z.string().optional().describe("Optional source app filter"),
+        feature_area: z.string().optional().describe("Optional feature-area filter"),
+        limit: z.number().min(1).max(12).default(6).describe("Maximum artifacts to include"),
+        project_path: z.string().optional().describe("Optional explicit project path override"),
+      },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async ({ title, objective, artifact_ids, query, tags, type, app_name, feature_area, limit, project_path }) => {
+      const { project, artifacts } = selectArtifacts({
+        artifact_ids,
+        query,
+        tags,
+        type,
+        app_name,
+        feature_area,
+        limit,
+        project_path,
+      });
+      const markdown = buildPrReferenceMarkdown({
+        title,
+        objective,
+        artifacts,
+        projectName: project.projectName,
+      });
+
+      return {
+        content: [{ type: "text", text: markdown }],
+        structuredContent: {
+          project,
+          artifacts,
+          markdown,
+        },
+      };
+    },
+  );
+
+  server.registerTool(
+    "mobbin_sync_collections_to_artifacts",
+    {
+      title: "Sync Collections To Artifacts",
+      description:
+        "Seed the local project store from Mobbin collection metadata and preview screens. This currently syncs collection-level references rather than individual collection contents.",
+      inputSchema: {
+        collection_ids: z.array(z.string()).optional().describe("Optional subset of collection IDs to sync"),
+        tags: z.array(z.string()).optional().describe("Optional extra tags to apply to the seeded artifacts"),
+        project_path: z.string().optional().describe("Optional explicit project path override"),
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: true,
+      },
+    },
+    async ({ collection_ids, tags, project_path }) => {
+      const result = await client.getCollections();
+      const collections =
+        collection_ids && collection_ids.length > 0
+          ? result.value.filter((collection) => collection_ids.includes(collection.id))
+          : result.value;
+
+      const seeded = seedArtifactsFromCollections({
+        collections,
+        projectPath: project_path,
+        tags,
+      });
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Seeded ${seeded.createdArtifacts.length} collection artifacts into ${seeded.project.projectName}. Total artifacts: ${seeded.totalArtifacts}.`,
+          },
+        ],
+        structuredContent: seeded,
+      };
+    },
+  );
+
+  server.registerTool(
+    "mobbin_generate_feature_review",
+    {
+      title: "Generate Feature Review",
+      description:
+        "Generate a diff-ready review report comparing intended references against actual implementation artifacts.",
+      inputSchema: {
+        title: z.string().min(3).default("Feature Review").describe("Review title"),
+        intended_artifact_ids: z.array(z.string()).describe("Artifacts representing the intended design or flow"),
+        actual_artifact_ids: z.array(z.string()).describe("Artifacts representing the shipped or current implementation"),
+        project_path: z.string().optional().describe("Optional explicit project path override"),
+      },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async ({ title, intended_artifact_ids, actual_artifact_ids, project_path }) => {
+      const index = loadProjectArtifacts(project_path);
+      const intendedArtifacts = index.artifacts.filter((artifact) => intended_artifact_ids.includes(artifact.id));
+      const actualArtifacts = index.artifacts.filter((artifact) => actual_artifact_ids.includes(artifact.id));
+      const markdown = buildFeatureReviewMarkdown({
+        title,
+        projectName: index.project.projectName,
+        intendedArtifacts,
+        actualArtifacts,
+      });
+
+      return {
+        content: [{ type: "text", text: markdown }],
+        structuredContent: {
+          project: index.project,
+          intendedArtifacts,
+          actualArtifacts,
+          markdown,
+        },
+      };
+    },
+  );
+
+  server.registerTool(
+    "mobbin_sync_shared_store",
+    {
+      title: "Sync Shared Store",
+      description:
+        "Push, pull, or merge the local project artifact store with an optional filesystem-backed shared store.",
+      inputSchema: {
+        direction: sharedSyncDirectionSchema.describe("Sync direction"),
+        shared_store_dir: z
+          .string()
+          .optional()
+          .describe("Optional explicit shared store directory; otherwise MOBBIN_SHARED_STORE_DIR is used"),
+        project_path: z.string().optional().describe("Optional explicit project path override"),
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+    },
+    async ({ direction, shared_store_dir, project_path }) => {
+      try {
+        const result = syncSharedStore({
+          projectPath: project_path,
+          sharedStoreDir: shared_store_dir,
+          direction,
+        });
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Shared store ${direction} completed for ${result.project.projectName}. Local artifacts: ${result.localArtifactCount}. Shared artifacts: ${result.sharedArtifactCount}.`,
+            },
+          ],
+          structuredContent: result,
+        };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return {
+          content: [{ type: "text", text: `Shared store sync failed: ${message}` }],
+          isError: true,
+        };
+      }
     },
   );
 

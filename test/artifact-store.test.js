@@ -8,8 +8,10 @@ const tempDataDir = fs.mkdtempSync(path.join(os.tmpdir(), "mobbin-mcp-data-"));
 process.env.MOBBIN_DATA_DIR = tempDataDir;
 
 const projectPath = fs.mkdtempSync(path.join(os.tmpdir(), "mobbin-mcp-project-"));
+const sharedStoreDir = fs.mkdtempSync(path.join(os.tmpdir(), "mobbin-mcp-shared-"));
 
 const artifactStore = await import("../dist/utils/artifact-store.js");
+const sharedStore = await import("../dist/utils/shared-store.js");
 
 test("artifact CRUD, search, catalog, export, and import work end-to-end", () => {
   const created = artifactStore.createArtifact({
@@ -79,6 +81,14 @@ test("artifact CRUD, search, catalog, export, and import work end-to-end", () =>
   });
   assert.match(markdownExport.output, /Checkout flow reference/);
 
+  const prExport = artifactStore.exportArtifacts({
+    projectPath,
+    artifacts: [updated.artifact],
+    format: "pr_markdown",
+    objective: "Implement the checkout summary update safely.",
+  });
+  assert.match(prExport.output, /Reviewer Checklist/);
+
   const memoryExport = artifactStore.exportArtifacts({
     projectPath,
     artifacts: [updated.artifact],
@@ -94,7 +104,60 @@ test("artifact CRUD, search, catalog, export, and import work end-to-end", () =>
   });
   assert.equal(importResult.imported, 1);
 
+  const seeded = artifactStore.seedArtifactsFromCollections({
+    projectPath,
+    collections: [
+      {
+        id: "collection-1",
+        workspaceId: "workspace-1",
+        name: "checkout-inspiration",
+        description: "Saved references for purchase flows.",
+        isPublic: false,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        createdBy: "user-1",
+        mobileAppsCount: 1,
+        mobileScreensCount: 2,
+        mobileFlowsCount: 1,
+        webAppsCount: 0,
+        webScreensCount: 0,
+        webFlowsCount: 0,
+        mobilePreviewScreens: [
+          {
+            id: "preview-1",
+            screenUrl: "https://bytescale.mobbin.com/example/preview.png",
+          },
+        ],
+      },
+    ],
+    tags: ["seeded"],
+  });
+  assert.equal(seeded.createdArtifacts.length, 1);
+  assert.equal(seeded.createdArtifacts[0].collections[0].name, "checkout-inspiration");
+
+  const featureReview = artifactStore.buildFeatureReviewMarkdown({
+    title: "Checkout review",
+    projectName: "demo/project",
+    intendedArtifacts: [updated.artifact],
+    actualArtifacts: seeded.createdArtifacts,
+  });
+  assert.match(featureReview, /Diff Summary/);
+
+  const sharedPush = sharedStore.syncSharedStore({
+    projectPath,
+    sharedStoreDir,
+    direction: "push",
+  });
+  assert.ok(sharedPush.sharedArtifactCount >= 1);
+
+  const sharedPull = sharedStore.syncSharedStore({
+    projectPath,
+    sharedStoreDir,
+    direction: "pull",
+  });
+  assert.ok(sharedPull.localArtifactCount >= 1);
+
   const deletion = artifactStore.deleteArtifact(created.id, projectPath);
   assert.equal(deletion.deleted, true);
-  assert.equal(deletion.artifactCount, 0);
+  assert.ok(deletion.artifactCount >= 1);
 });

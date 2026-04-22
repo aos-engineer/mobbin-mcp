@@ -3,6 +3,7 @@ import {
   MOBBIN_BASE_URL,
   ALLOWED_IMAGE_HOSTS,
   MAX_IMAGE_SIZE_BYTES,
+  API_FETCH_TIMEOUT_MS,
   IMAGE_FETCH_TIMEOUT_MS,
   BYTESCALE_CDN_BASE,
   SUPABASE_STORAGE_PREFIX,
@@ -34,9 +35,39 @@ import type { MobbinAuth } from "./auth.js";
  */
 export class MobbinApiClient {
   private auth: MobbinAuth;
+  private cache = new Map<string, { expiresAt: number; value: unknown }>();
+  private inFlight = new Map<string, Promise<unknown>>();
 
   constructor(auth: MobbinAuth) {
     this.auth = auth;
+  }
+
+  private async getOrSetCache<T>(
+    key: string,
+    ttlMs: number,
+    loader: () => Promise<T>,
+  ): Promise<T> {
+    const cached = this.cache.get(key);
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.value as T;
+    }
+
+    const existing = this.inFlight.get(key);
+    if (existing) {
+      return existing as Promise<T>;
+    }
+
+    const promise = loader()
+      .then((value) => {
+        this.cache.set(key, { value, expiresAt: Date.now() + ttlMs });
+        return value;
+      })
+      .finally(() => {
+        this.inFlight.delete(key);
+      });
+
+    this.inFlight.set(key, promise);
+    return promise;
   }
 
   /** Make an authenticated request to a Mobbin API route. Automatically uses a fresh token. */
@@ -46,6 +77,8 @@ export class MobbinApiClient {
   ): Promise<T> {
     const { method = "GET", body } = options;
     const cookie = await this.auth.getCookieValue();
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), API_FETCH_TIMEOUT_MS);
 
     const headers: Record<string, string> = {
       Cookie: cookie,
@@ -55,20 +88,32 @@ export class MobbinApiClient {
       headers["Content-Type"] = "application/json";
     }
 
-    const res = await fetch(`${MOBBIN_BASE_URL}${path}`, {
-      method,
-      headers,
-      body: body !== undefined ? JSON.stringify(body) : undefined,
-    });
+    try {
+      const res = await fetch(`${MOBBIN_BASE_URL}${path}`, {
+        method,
+        headers,
+        body: body !== undefined ? JSON.stringify(body) : undefined,
+        signal: controller.signal,
+      });
 
-    if (!res.ok) {
-      const text = await res.text().catch(() => "");
-      throw new Error(
-        `Mobbin API error: ${res.status} ${res.statusText} - ${path}${text ? `: ${text.substring(0, 200)}` : ""}`,
-      );
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(
+          `Mobbin API error: ${res.status} ${res.statusText} - ${path}${text ? `: ${text.substring(0, 200)}` : ""}`,
+        );
+      }
+
+      return res.json() as Promise<T>;
+    } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") {
+        throw new Error(`Mobbin API request timed out after ${API_FETCH_TIMEOUT_MS}ms: ${path}`, {
+          cause: error,
+        });
+      }
+      throw error;
+    } finally {
+      clearTimeout(timeoutId);
     }
-
-    return res.json() as Promise<T>;
   }
 
   /**
@@ -82,21 +127,26 @@ export class MobbinApiClient {
     pageIndex?: number;
     sortBy?: string;
   }): Promise<ContentSearchResponse<AppResult>> {
-    return this.request("/api/content/search-apps", {
-      method: "POST",
-      body: {
-        searchRequestId: "",
-        filterOptions: {
-          platform: params.platform,
-          appCategories: params.appCategories ?? null,
-        },
-        paginationOptions: {
-          pageSize: params.pageSize ?? DEFAULT_PAGE_SIZE,
-          pageIndex: params.pageIndex ?? DEFAULT_PAGE_INDEX,
-          sortBy: params.sortBy ?? "publishedAt",
-        },
-      },
-    });
+    return this.getOrSetCache(
+      `search-apps:${JSON.stringify(params)}`,
+      60 * 1000,
+      () =>
+        this.request("/api/content/search-apps", {
+          method: "POST",
+          body: {
+            searchRequestId: "",
+            filterOptions: {
+              platform: params.platform,
+              appCategories: params.appCategories ?? null,
+            },
+            paginationOptions: {
+              pageSize: params.pageSize ?? DEFAULT_PAGE_SIZE,
+              pageIndex: params.pageIndex ?? DEFAULT_PAGE_INDEX,
+              sortBy: params.sortBy ?? "publishedAt",
+            },
+          },
+        }),
+    );
   }
 
   /**
@@ -114,25 +164,30 @@ export class MobbinApiClient {
     pageIndex?: number;
     sortBy?: string;
   }): Promise<ContentSearchResponse<ScreenResult>> {
-    return this.request("/api/content/search-screens", {
-      method: "POST",
-      body: {
-        searchRequestId: "",
-        filterOptions: {
-          platform: params.platform,
-          screenPatterns: params.screenPatterns ?? null,
-          screenElements: params.screenElements ?? null,
-          screenKeywords: params.screenKeywords ?? null,
-          appCategories: params.appCategories ?? null,
-          hasAnimation: params.hasAnimation ?? null,
-        },
-        paginationOptions: {
-          pageSize: params.pageSize ?? DEFAULT_PAGE_SIZE,
-          pageIndex: params.pageIndex ?? DEFAULT_PAGE_INDEX,
-          sortBy: params.sortBy ?? "trending",
-        },
-      },
-    });
+    return this.getOrSetCache(
+      `search-screens:${JSON.stringify(params)}`,
+      60 * 1000,
+      () =>
+        this.request("/api/content/search-screens", {
+          method: "POST",
+          body: {
+            searchRequestId: "",
+            filterOptions: {
+              platform: params.platform,
+              screenPatterns: params.screenPatterns ?? null,
+              screenElements: params.screenElements ?? null,
+              screenKeywords: params.screenKeywords ?? null,
+              appCategories: params.appCategories ?? null,
+              hasAnimation: params.hasAnimation ?? null,
+            },
+            paginationOptions: {
+              pageSize: params.pageSize ?? DEFAULT_PAGE_SIZE,
+              pageIndex: params.pageIndex ?? DEFAULT_PAGE_INDEX,
+              sortBy: params.sortBy ?? "trending",
+            },
+          },
+        }),
+    );
   }
 
   /**
@@ -147,22 +202,27 @@ export class MobbinApiClient {
     pageIndex?: number;
     sortBy?: string;
   }): Promise<ContentSearchResponse<FlowResult>> {
-    return this.request("/api/content/search-flows", {
-      method: "POST",
-      body: {
-        searchRequestId: "",
-        filterOptions: {
-          platform: params.platform,
-          flowActions: params.flowActions ?? null,
-          appCategories: params.appCategories ?? null,
-        },
-        paginationOptions: {
-          pageSize: params.pageSize ?? DEFAULT_PAGE_SIZE,
-          pageIndex: params.pageIndex ?? DEFAULT_PAGE_INDEX,
-          sortBy: params.sortBy ?? "trending",
-        },
-      },
-    });
+    return this.getOrSetCache(
+      `search-flows:${JSON.stringify(params)}`,
+      60 * 1000,
+      () =>
+        this.request("/api/content/search-flows", {
+          method: "POST",
+          body: {
+            searchRequestId: "",
+            filterOptions: {
+              platform: params.platform,
+              flowActions: params.flowActions ?? null,
+              appCategories: params.appCategories ?? null,
+            },
+            paginationOptions: {
+              pageSize: params.pageSize ?? DEFAULT_PAGE_SIZE,
+              pageIndex: params.pageIndex ?? DEFAULT_PAGE_INDEX,
+              sortBy: params.sortBy ?? "trending",
+            },
+          },
+        }),
+    );
   }
 
   /**
@@ -183,14 +243,19 @@ export class MobbinApiClient {
       sites: Array<{ id: string; type: string }>;
     };
   }> {
-    return this.request("/api/search-bar/search", {
-      method: "POST",
-      body: {
-        query: params.query,
-        experience: params.experience ?? "apps",
-        platform: params.platform ?? "ios",
-      },
-    });
+    return this.getOrSetCache(
+      `autocomplete:${JSON.stringify(params)}`,
+      30 * 1000,
+      () =>
+        this.request("/api/search-bar/search", {
+          method: "POST",
+          body: {
+            query: params.query,
+            experience: params.experience ?? "apps",
+            platform: params.platform ?? "ios",
+          },
+        }),
+    );
   }
 
   /**
@@ -199,7 +264,9 @@ export class MobbinApiClient {
    * Endpoint: `GET /api/searchable-apps/{platform}`
    */
   async getSearchableApps(platform: string): Promise<SearchableApp[]> {
-    return this.request(`/api/searchable-apps/${platform}`);
+    return this.getOrSetCache(`searchable-apps:${platform}`, 60 * 60 * 1000, () =>
+      this.request(`/api/searchable-apps/${platform}`),
+    );
   }
 
   /**
@@ -219,13 +286,18 @@ export class MobbinApiClient {
       }>
     >
   > {
-    return this.request("/api/popular-apps/fetch-popular-apps-with-preview-screens", {
-      method: "POST",
-      body: {
-        platform: params.platform,
-        limitPerCategory: params.limitPerCategory ?? 10,
-      },
-    });
+    return this.getOrSetCache(
+      `popular-apps:${params.platform}:${params.limitPerCategory ?? 10}`,
+      10 * 60 * 1000,
+      () =>
+        this.request("/api/popular-apps/fetch-popular-apps-with-preview-screens", {
+          method: "POST",
+          body: {
+            platform: params.platform,
+            limitPerCategory: params.limitPerCategory ?? 10,
+          },
+        }),
+    );
   }
 
   /**
@@ -233,9 +305,11 @@ export class MobbinApiClient {
    * Endpoint: `POST /api/collection/fetch-collections`
    */
   async getCollections(): Promise<ValueResponse<Collection[]>> {
-    return this.request("/api/collection/fetch-collections", {
-      method: "POST",
-    });
+    return this.getOrSetCache("collections", 60 * 1000, () =>
+      this.request("/api/collection/fetch-collections", {
+        method: "POST",
+      }),
+    );
   }
 
   /**
@@ -244,10 +318,12 @@ export class MobbinApiClient {
    * Endpoint: `POST /api/filter-tags/fetch-dictionary-definitions`
    */
   async getDictionaryDefinitions(): Promise<ValueResponse<unknown>> {
-    return this.request("/api/filter-tags/fetch-dictionary-definitions", {
-      method: "POST",
-      body: {},
-    });
+    return this.getOrSetCache("dictionary-definitions", 24 * 60 * 60 * 1000, () =>
+      this.request("/api/filter-tags/fetch-dictionary-definitions", {
+        method: "POST",
+        body: {},
+      }),
+    );
   }
 
   /**

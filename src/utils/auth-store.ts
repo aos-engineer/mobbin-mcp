@@ -3,8 +3,23 @@ import path from "node:path";
 import os from "node:os";
 import type { SupabaseSession } from "../services/auth.js";
 
-export const AUTH_DIR = path.join(os.homedir(), ".mobbin-mcp");
-export const AUTH_FILE = path.join(AUTH_DIR, "auth.json");
+function resolveDataDir(): string {
+  if (process.env.MOBBIN_DATA_DIR?.trim()) {
+    return path.resolve(process.env.MOBBIN_DATA_DIR);
+  }
+
+  if (process.env.XDG_CONFIG_HOME?.trim()) {
+    return path.join(path.resolve(process.env.XDG_CONFIG_HOME), "mobbin-mcp");
+  }
+
+  return path.join(os.homedir(), ".mobbin-mcp");
+}
+
+export const DATA_DIR = resolveDataDir();
+export const AUTH_DIR = DATA_DIR;
+export const AUTH_FILE = process.env.MOBBIN_AUTH_FILE
+  ? path.resolve(process.env.MOBBIN_AUTH_FILE)
+  : path.join(AUTH_DIR, "auth.json");
 
 export function readStoredSession(): SupabaseSession | null {
   try {
@@ -19,7 +34,7 @@ export function readStoredSession(): SupabaseSession | null {
 }
 
 export function writeStoredSession(session: SupabaseSession): void {
-  fs.mkdirSync(AUTH_DIR, { recursive: true });
+  fs.mkdirSync(path.dirname(AUTH_FILE), { recursive: true });
   const tmp = AUTH_FILE + ".tmp";
   fs.writeFileSync(tmp, JSON.stringify(session, null, 2), { mode: 0o600 });
   fs.renameSync(tmp, AUTH_FILE);

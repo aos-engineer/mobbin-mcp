@@ -198,3 +198,108 @@ export interface DictionaryCategory {
     }>;
   }>;
 }
+
+export type ProjectDetectionSource = "git" | "cwd" | "environment" | "explicit_path";
+
+export interface ProjectContext {
+  projectId: string;
+  projectName: string;
+  projectRoot: string;
+  gitRoot: string | null;
+  remoteUrl: string | null;
+  branch: string | null;
+  detectedFrom: ProjectDetectionSource;
+}
+
+export type CapturedArtifactType =
+  | "screen"
+  | "flow"
+  | "note"
+  | "implementation"
+  | "design"
+  | "reference";
+
+export type ArtifactSourceType = "mobbin" | "manual" | "derived";
+
+export type ArtifactDecisionStatus = "accepted" | "open" | "rejected";
+
+export interface CapturedArtifactHotspot {
+  x?: number;
+  y?: number;
+  width?: number;
+  height?: number;
+}
+
+export interface CapturedArtifactStep {
+  order: number;
+  title?: string;
+  summary?: string;
+  screenId?: string;
+  screenUrl?: string;
+  patterns: string[];
+  elements: string[];
+  hotspot?: CapturedArtifactHotspot;
+}
+
+export interface CapturedArtifactDecision {
+  decision: string;
+  rationale: string;
+  status: ArtifactDecisionStatus;
+}
+
+export interface CapturedArtifactReference {
+  label: string;
+  url?: string;
+  artifactId?: string;
+  note?: string;
+}
+
+export interface CapturedArtifact {
+  id: string;
+  type: CapturedArtifactType;
+  title: string;
+  summary: string;
+  source: ArtifactSourceType;
+  tags: string[];
+  notes?: string;
+  appName?: string;
+  platform?: string;
+  featureArea?: string;
+  journeyName?: string;
+  sessionName?: string;
+  participants: string[];
+  implementationHints: string[];
+  decisions: CapturedArtifactDecision[];
+  references: CapturedArtifactReference[];
+  steps: CapturedArtifactStep[];
+  sourceUrls: string[];
+  screenUrl?: string;
+  flowName?: string;
+  patterns: string[];
+  elements: string[];
+  relatedArtifactIds: string[];
+  projectId: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ProjectArtifactIndex {
+  version: number;
+  project: ProjectContext;
+  artifacts: CapturedArtifact[];
+}
+
+export interface ProjectArtifactCatalog {
+  totalArtifacts: number;
+  byType: Record<string, number>;
+  byTag: Record<string, number>;
+  byAppName: Record<string, number>;
+  byPlatform: Record<string, number>;
+  byFeatureArea: Record<string, number>;
+  byPattern: Record<string, number>;
+  byElement: Record<string, number>;
+}
+
+export type AgentTarget = "claude_code" | "codex" | "pi" | "mem_palace";
+
+export type ArtifactExportFormat = "json" | "markdown" | "prompt_pack" | "mem_palace_jsonl";

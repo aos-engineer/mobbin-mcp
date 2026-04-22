@@ -1,21 +1,56 @@
 # Mobbin MCP Server
 
-An unofficial MCP server that connects to [Mobbin](https://mobbin.com) — the design inspiration platform with 600k+ screens from 1,100+ apps. Search apps, browse screenshots, explore user flows, and access your saved collections directly from Claude.
+An unofficial MCP server that connects to [Mobbin](https://mobbin.com) — the design inspiration platform with 600k+ screens from 1,100+ apps. Search apps, browse screenshots, explore user flows, and access your saved collections directly from Claude, Codex, or any other MCP-capable client.
 
 Mobbin has no public API. This server was built by reverse-engineering their internal endpoints.
 
 ## Tools
 
-| Tool                       | Description                                                                                  |
-| -------------------------- | -------------------------------------------------------------------------------------------- |
-| `mobbin_search_apps`       | Search and browse apps by category and platform                                              |
-| `mobbin_search_screens`    | Search screens by UI patterns, elements, or text content                                     |
-| `mobbin_search_flows`      | Search user flows by action type (e.g., onboarding, checkout)                                |
-| `mobbin_quick_search`      | Fast autocomplete search for apps by name                                                    |
-| `mobbin_popular_apps`      | Get popular apps grouped by category                                                         |
-| `mobbin_list_collections`  | List your saved collections                                                                  |
+### Search Mobbin
+
+| Tool | Description |
+| --- | --- |
+| `mobbin_search_apps` | Search and browse apps by category and platform |
+| `mobbin_search_screens` | Search screens by UI patterns, elements, or text content |
+| `mobbin_search_flows` | Search user flows by action type |
+| `mobbin_quick_search` | Fast autocomplete search for apps by name |
+| `mobbin_popular_apps` | Get popular apps grouped by category |
+| `mobbin_list_collections` | List your saved collections |
 | `mobbin_get_screen_detail` | Fetch a full screenshot image for a specific screen, with optional dominant color extraction |
-| `mobbin_get_filters`       | Get all available filter values (categories, patterns, elements, actions)                    |
+| `mobbin_get_filters` | Get all available filter values |
+
+### Capture And Reference Workflows
+
+| Tool | Description |
+| --- | --- |
+| `mobbin_doctor` | Inspect auth, project detection, artifact storage, and runtime health |
+| `mobbin_get_project_context` | Auto-detect the current repository / working directory and show capture state |
+| `mobbin_capture_artifact` | Save screens, flows, notes, decisions, and implementation references into a local project index |
+| `mobbin_get_captured_artifact` | Fetch a single captured artifact by ID |
+| `mobbin_update_captured_artifact` | Update metadata, notes, steps, and decisions on an existing artifact |
+| `mobbin_delete_captured_artifact` | Remove an artifact from the local project index |
+| `mobbin_search_captured_artifacts` | Search previously captured artifacts by keyword, tag, type, app, or feature area |
+| `mobbin_get_capture_catalog` | Return facet counts for types, tags, apps, patterns, and feature areas |
+| `mobbin_export_captured_artifacts` | Export artifacts as JSON, Markdown, prompt packs, or Mem Palace JSONL |
+| `mobbin_import_captured_artifacts` | Import artifacts from a previous export |
+| `mobbin_generate_feature_prompt` | Generate implementation, analysis, or onboarding prompts from captured artifacts |
+| `mobbin_generate_agent_context` | Generate agent-specific context for Claude Code, Codex, Pi, or Mem Palace |
+
+## Resources
+
+| Resource | Description |
+| --- | --- |
+| `mobbin://project/context` | Current repo-aware project context detected from git or cwd |
+| `mobbin://project/captures` | Current project's captured artifact index as JSON |
+| `mobbin://project/catalog` | Current project's artifact catalog and facet counts |
+
+## Prompts
+
+| Prompt | Description |
+| --- | --- |
+| `mobbin_feature_implementation_prompt` | Build a reusable implementation prompt from captured artifacts |
+| `mobbin_feature_analysis_prompt` | Build a feature-analysis prompt from captured artifacts |
+| `mobbin_onboarding_brief_prompt` | Build an onboarding brief from captured artifacts |
 
 ## Setup
 
@@ -32,14 +67,16 @@ Mobbin has no public API. This server was built by reverse-engineering their int
 npx -y mobbin-mcp auth
 ```
 
-This will walk you through copying your session cookie from the browser:
+This is a one-time setup per machine. The session is stored globally and reused automatically across projects.
+
+The CLI walks you through copying your session cookie from the browser:
 
 1. Open [mobbin.com](https://mobbin.com) and log in
 2. Open the browser console (`Cmd+Option+J`)
 3. Run `copy(document.cookie)` to copy your cookies to clipboard
 4. Paste into the CLI prompt
 
-Your session is saved to `~/.mobbin-mcp/auth.json` and automatically refreshed.
+Your session is saved to `~/.mobbin-mcp/auth.json` (or `XDG_CONFIG_HOME/mobbin-mcp/auth.json`) and automatically refreshed.
 
 > **What does `copy(document.cookie)` do?** It copies your browser's cookies for the current site (mobbin.com) to your clipboard. This includes your Supabase session tokens, which the MCP server needs to make API requests on your behalf. The cookies are stored locally on your machine at `~/.mobbin-mcp/auth.json` and are never sent anywhere except to Mobbin's API.
 
@@ -94,12 +131,41 @@ Add to your Claude Desktop config (`~/Library/Application Support/Claude/claude_
 - "Compare how fintech apps handle settings screens — show me examples from Robinhood, Cash App, and Venmo"
 - "Search for screens with card-based layouts in travel apps, then show me the best one in detail"
 - "What UI patterns are trending right now on iOS? Show me the top screens"
+- "Save this onboarding flow as a captured artifact for our auth redesign and tag it `signup`, `ios`, and `trust-building`"
+- "Generate a Codex-ready implementation prompt for the checkout feature using our saved `checkout` references"
+- "Export our saved growth-onboarding captures as Mem Palace JSONL"
+- "Give me an onboarding brief for the billing area using everything tagged `billing`"
 
 ## How it works
 
 Mobbin is a Next.js app backed by Supabase. This server calls Mobbin's internal API routes (`/api/content/search-apps`, `/api/content/search-screens`, etc.) using your session cookie for authentication. Tokens are automatically refreshed via Supabase's `/auth/v1/token` endpoint before they expire, and persisted back to `~/.mobbin-mcp/auth.json` when using the CLI auth method.
 
 Screen images are served through Mobbin's Bytescale CDN. The `mobbin_get_screen_detail` tool automatically converts Supabase storage URLs from search results into CDN URLs, fetches the image, and returns it as base64 content that the model can see and analyze. Optional color extraction uses [sharp](https://sharp.pixelplumbing.com/) to return dominant hex colors from the screenshot.
+
+Captured artifacts are stored locally in a project-aware index under `~/.mobbin-mcp/projects/<project-id>/artifacts.json`. The server auto-detects the active repository from git when possible, then falls back to the current working directory. This makes saved Mobbin references portable across MCP clients while still being scoped to the project you are working on.
+
+Artifacts can include:
+
+- feature area, journey, session name, and participants
+- implementation hints and decision logs
+- ordered steps with patterns, elements, and hotspot geometry
+- references to URLs or other saved artifacts
+
+## Development
+
+```bash
+npm install
+npm run build
+npm run lint
+npm test
+```
+
+Additional docs:
+
+- [Architecture](docs/ARCHITECTURE.md)
+- [Portability](docs/PORTABILITY.md)
+- [Workflows](docs/WORKFLOWS.md)
+- [Implementation Ideas](docs/IMPLEMENTATION_IDEAS.md)
 
 ## Project structure
 
@@ -115,9 +181,11 @@ src/
     api-client.ts       # HTTP client for all Mobbin API endpoints
   utils/
     auth-store.ts       # Persistent session storage (~/.mobbin-mcp/auth.json)
+    artifact-store.ts   # Project-aware capture index for saved references and prompt generation
     formatting.ts       # Markdown formatters for tool responses
+    project-context.ts  # Git / cwd auto-discovery for repository-aware capture
 ```
 
 ## License
 
-ISC
+MIT

@@ -7,7 +7,7 @@ Thanks for your interest in contributing! Here's how to get started.
 1. Clone the repo and install dependencies:
 
 ```bash
-git clone https://github.com/pdcolandrea/mobbin-mcp.git
+git clone https://github.com/sireskay/mobbin-mcp.git
 cd mobbin-mcp
 npm install
 ```
@@ -26,7 +26,7 @@ npm run dev
 
 ## Making changes
 
-1. Fork the repo and create a branch from `master`
+1. Fork the repo and create a branch from `main`
 2. Make your changes in `src/`
 3. Verify the build passes: `npm run build`
 4. Open a pull request

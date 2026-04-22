@@ -4,6 +4,7 @@ export const DEFAULT_PAGE_SIZE = 24;
 export const DEFAULT_PAGE_INDEX = 0;
 export const MAX_PAGE_SIZE = 50;
 export const CHARACTER_LIMIT = 25000;
+export const API_FETCH_TIMEOUT_MS = 15_000;
 
 /** Thumbnail dimension (px) used for color sampling — small enough for speed, large enough for accuracy. */
 export const COLOR_SAMPLE_SIZE = 64;

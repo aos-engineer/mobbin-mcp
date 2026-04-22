@@ -108,12 +108,56 @@ Removed limitations from the old shape:
 - Node.js 18+
 - A [Mobbin](https://mobbin.com) account (free or paid)
 
-### 1. Authenticate
+## Installation
 
-**Option A: CLI command (recommended)**
+Published package:
+
+```text
+@aos-engineer/mobbin-mcp
+```
+
+Recommended install path:
 
 ```bash
-npx -y mobbin-mcp auth
+npx -y @aos-engineer/mobbin-mcp auth
+```
+
+Contributor and fallback paths:
+
+### Option A: Run From GitHub
+
+```bash
+npx -y github:sireskay/mobbin-mcp auth
+```
+
+### Option B: Run From A Local Checkout
+
+```bash
+git clone https://github.com/sireskay/mobbin-mcp.git
+cd mobbin-mcp
+npm install
+npm run build
+node dist/index.js
+```
+
+### 1. Authenticate
+
+**Option A: npm package path (recommended)**
+
+```bash
+npx -y @aos-engineer/mobbin-mcp auth
+```
+
+**Option B: GitHub fallback**
+
+```bash
+npx -y github:sireskay/mobbin-mcp auth
+```
+
+**Option C: local checkout**
+
+```bash
+node dist/index.js auth
 ```
 
 This is a one-time setup per machine. The session is stored globally and reused automatically across projects.
@@ -155,16 +199,60 @@ sb-ujasntkfphywizsdaapi-auth-token.0=<value0>; sb-ujasntkfphywizsdaapi-auth-toke
 
 ### 2. Add to Claude Code
 
+Recommended npm package path:
+
 ```bash
-claude mcp add mobbin -- npx -y mobbin-mcp
+claude mcp add mobbin -- npx -y @aos-engineer/mobbin-mcp
+```
+
+GitHub fallback:
+
+```bash
+claude mcp add mobbin -- npx -y github:sireskay/mobbin-mcp
 ```
 
 If you used the CLI auth command (Option A), no additional config is needed — the server reads from `~/.mobbin-mcp/auth.json` automatically.
 
 If using the environment variable (Option B), pass it when adding:
 
+Recommended npm package path:
+
 ```bash
-claude mcp add mobbin -e MOBBIN_AUTH_COOKIE="sb-ujasntkfphywizsdaapi-auth-token.0=...; sb-ujasntkfphywizsdaapi-auth-token.1=..." -- npx -y mobbin-mcp
+claude mcp add mobbin -e MOBBIN_AUTH_COOKIE="sb-ujasntkfphywizsdaapi-auth-token.0=...; sb-ujasntkfphywizsdaapi-auth-token.1=..." -- npx -y @aos-engineer/mobbin-mcp
+```
+
+GitHub fallback:
+
+```bash
+claude mcp add mobbin -e MOBBIN_AUTH_COOKIE="sb-ujasntkfphywizsdaapi-auth-token.0=...; sb-ujasntkfphywizsdaapi-auth-token.1=..." -- npx -y github:sireskay/mobbin-mcp
+```
+
+### 3. Add to Codex
+
+If your Codex runtime is configured to use stdio MCP servers, point it at the published package:
+
+```json
+{
+  "mcpServers": {
+    "mobbin": {
+      "command": "npx",
+      "args": ["-y", "@aos-engineer/mobbin-mcp"]
+    }
+  }
+}
+```
+
+For a local checkout, use:
+
+```json
+{
+  "mcpServers": {
+    "mobbin": {
+      "command": "node",
+      "args": ["/absolute/path/to/mobbin-mcp/dist/index.js"]
+    }
+  }
+}
 ```
 
 ### Alternative: Claude Desktop
@@ -176,7 +264,22 @@ Add to your Claude Desktop config (`~/Library/Application Support/Claude/claude_
   "mcpServers": {
     "mobbin": {
       "command": "npx",
-      "args": ["-y", "mobbin-mcp"]
+      "args": ["-y", "@aos-engineer/mobbin-mcp"]
+    }
+  }
+}
+```
+
+### Local MCP alternative
+
+If you prefer a pinned local checkout instead of `npx`, build once locally and point your MCP client directly at the compiled server:
+
+```json
+{
+  "mcpServers": {
+    "mobbin": {
+      "command": "node",
+      "args": ["/absolute/path/to/mobbin-mcp/dist/index.js"]
     }
   }
 }

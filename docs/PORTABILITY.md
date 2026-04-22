@@ -45,7 +45,7 @@ Add wrappers only when needed for:
 
 ## Recommended Team Setup
 
-1. Authenticate once with `mobbin-mcp auth`
+1. Authenticate once with `npx -y @aos-engineer/mobbin-mcp auth`
 2. Add the MCP server to Claude Code and Codex
 3. Capture references during mobbing sessions into the local project store
 4. Generate agent-specific context on demand with `mobbin_generate_agent_context`

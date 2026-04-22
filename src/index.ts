@@ -191,11 +191,11 @@ async function main() {
     if (!cookieValue) {
       console.error(
         "Error: No authentication found.\n\n" +
-          "Option 1 (recommended): Run 'npx mobbin-mcp auth' to log in with your email.\n\n" +
+          "Option 1 (recommended): Run 'npx -y @aos-engineer/mobbin-mcp auth'.\n\n" +
           "Option 2: Set the MOBBIN_AUTH_COOKIE environment variable.\n" +
           "  1. Open mobbin.com and log in\n" +
-          "  2. Open DevTools > Application > Cookies\n" +
-          "  3. Copy the full cookie string (all cookies for mobbin.com)\n" +
+          "  2. Open DevTools > Application > Local Storage > https://mobbin.com\n" +
+          "  3. Copy the value of the 'sb-...-auth-token' entry\n" +
           "  4. Set MOBBIN_AUTH_COOKIE to that value",
       );
       process.exit(1);

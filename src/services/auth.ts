@@ -46,8 +46,8 @@ export class MobbinAuth {
   }
 
   static fromCookie(rawCookie: string): MobbinAuth {
-    const session = MobbinAuth.parseSessionFromCookie(rawCookie);
-    return new MobbinAuth(session, rawCookie);
+    const session = MobbinAuth.parseSessionFromInput(rawCookie);
+    return new MobbinAuth(session, MobbinAuth.buildCookieString(session));
   }
 
   static fromSession(
@@ -123,12 +123,48 @@ export class MobbinAuth {
     }
   }
 
-  /**
-   * Parse the Supabase session JSON from the raw cookie string.
-   * The session is split across two cookies (`.0` and `.1`) and URL-encoded.
-   */
-  private static parseSessionFromCookie(cookie: string): SupabaseSession {
-    const cookies = cookie.split("; ").reduce<Record<string, string>>((acc, part) => {
+  private static normalizeInput(input: string): string {
+    const trimmed = input.trim();
+
+    if (
+      (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+      (trimmed.startsWith("'") && trimmed.endsWith("'"))
+    ) {
+      return trimmed.slice(1, -1);
+    }
+
+    return trimmed;
+  }
+
+  private static tryParseSessionPayload(payload: string): SupabaseSession | null {
+    const normalized = MobbinAuth.normalizeInput(payload);
+    const candidates = [normalized];
+
+    try {
+      const decoded = decodeURIComponent(normalized);
+      if (decoded !== normalized) {
+        candidates.push(decoded);
+      }
+    } catch {
+      // Ignore invalid URI encodings and continue with the raw payload.
+    }
+
+    for (const candidate of candidates) {
+      try {
+        const parsed = JSON.parse(candidate) as SupabaseSession;
+        if (parsed?.access_token && parsed?.refresh_token && parsed?.expires_at) {
+          return parsed;
+        }
+      } catch {
+        // Try the next candidate form.
+      }
+    }
+
+    return null;
+  }
+
+  private static collectCookieChunks(cookie: string): string[] {
+    const cookies = cookie.split(/;\s*/).reduce<Record<string, string>>((acc, part) => {
       const eqIdx = part.indexOf("=");
       if (eqIdx > 0) {
         acc[part.substring(0, eqIdx)] = part.substring(eqIdx + 1);
@@ -136,24 +172,65 @@ export class MobbinAuth {
       return acc;
     }, {});
 
-    // Supabase only splits the session into `.0`/`.1` chunks when the JSON
-    // exceeds the ~4KB single-cookie limit. Smaller sessions are written to
-    // the bare cookie name with no suffix, so fall back to that.
-    const chunk0 =
-      cookies[`${SUPABASE_COOKIE_PREFIX}.0`] ??
-      cookies[SUPABASE_COOKIE_PREFIX] ??
-      "";
-    const chunk1 = cookies[`${SUPABASE_COOKIE_PREFIX}.1`] ?? "";
-    const combined = decodeURIComponent(chunk0 + chunk1);
-
-    try {
-      return JSON.parse(combined) as SupabaseSession;
-    } catch {
-      throw new Error(
-        `Failed to parse Supabase session from cookie. ` +
-          `Make sure MOBBIN_AUTH_COOKIE contains the '${SUPABASE_COOKIE_PREFIX}.0' and '.1' cookies.`,
-      );
+    const candidatePrefixes = new Set<string>();
+    if (cookies[SUPABASE_COOKIE_PREFIX] || cookies[`${SUPABASE_COOKIE_PREFIX}.0`]) {
+      candidatePrefixes.add(SUPABASE_COOKIE_PREFIX);
     }
+
+    for (const name of Object.keys(cookies)) {
+      const match = name.match(/^(sb-[a-z0-9]+-auth-token)(?:\.(\d+))?$/i);
+      if (match) {
+        candidatePrefixes.add(match[1]);
+      }
+    }
+
+    for (const prefix of candidatePrefixes) {
+      if (cookies[prefix]) {
+        return [cookies[prefix]];
+      }
+
+      const chunkEntries = Object.entries(cookies)
+        .map(([name, value]) => {
+          const match = name.match(new RegExp(`^${prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\.(\\d+)$`));
+          return match ? { index: Number.parseInt(match[1], 10), value } : null;
+        })
+        .filter((entry): entry is { index: number; value: string } => entry !== null)
+        .sort((a, b) => a.index - b.index);
+
+      if (chunkEntries.length > 0) {
+        return chunkEntries.map((entry) => entry.value);
+      }
+    }
+
+    return [];
+  }
+
+  /**
+   * Parse a Supabase session from raw cookie text, a single cookie value,
+   * or a direct JSON/localStorage session payload.
+   */
+  private static parseSessionFromInput(input: string): SupabaseSession {
+    const normalizedInput = MobbinAuth.normalizeInput(input);
+
+    const directSession = MobbinAuth.tryParseSessionPayload(normalizedInput);
+    if (directSession) {
+      return directSession;
+    }
+
+    const chunks = MobbinAuth.collectCookieChunks(normalizedInput);
+    if (chunks.length > 0) {
+      const chunkSession = MobbinAuth.tryParseSessionPayload(chunks.join(""));
+      if (chunkSession) {
+        return chunkSession;
+      }
+    }
+
+    throw new Error(
+      `Failed to parse Supabase session from input. ` +
+        `Provide either the '${SUPABASE_COOKIE_PREFIX}' cookie value, the ` +
+        `'${SUPABASE_COOKIE_PREFIX}.0/.1' cookie pair, or the raw JSON session ` +
+        `from localStorage '${SUPABASE_COOKIE_PREFIX}'.`,
+    );
   }
 
   /**

@@ -19,6 +19,8 @@ export interface SupabaseSession {
   [key: string]: unknown;
 }
 
+const COOKIE_CHUNK_SIZE = 3_800;
+
 /**
  * Manages Supabase auth tokens for the Mobbin API.
  *
@@ -139,28 +141,58 @@ export class MobbinAuth {
   private static tryParseSessionPayload(payload: string): SupabaseSession | null {
     const normalized = MobbinAuth.normalizeInput(payload);
     const candidates = [normalized];
+    const seen = new Set<string>();
 
-    try {
-      const decoded = decodeURIComponent(normalized);
-      if (decoded !== normalized) {
-        candidates.push(decoded);
+    const enqueue = (candidate: string | null | undefined) => {
+      if (!candidate || seen.has(candidate)) {
+        return;
       }
-    } catch {
-      // Ignore invalid URI encodings and continue with the raw payload.
-    }
+      seen.add(candidate);
+      candidates.push(candidate);
+    };
 
-    for (const candidate of candidates) {
+    for (let index = 0; index < candidates.length; index += 1) {
+      const candidate = candidates[index];
       try {
         const parsed = JSON.parse(candidate) as SupabaseSession;
         if (parsed?.access_token && parsed?.refresh_token && parsed?.expires_at) {
           return parsed;
         }
       } catch {
-        // Try the next candidate form.
+        // Try the next candidate form below.
+      }
+
+      try {
+        const decoded = decodeURIComponent(candidate);
+        if (decoded !== candidate) {
+          enqueue(decoded);
+        }
+      } catch {
+        // Ignore invalid URI encodings and continue with other forms.
+      }
+
+      const decodedBase64 = MobbinAuth.decodeBase64CookiePayload(candidate);
+      if (decodedBase64 && decodedBase64 !== candidate) {
+        enqueue(decodedBase64);
       }
     }
 
     return null;
+  }
+
+  private static decodeBase64CookiePayload(payload: string): string | null {
+    const normalized = payload.startsWith("base64-") ? payload.slice("base64-".length) : payload;
+    if (!/^[A-Za-z0-9+/_=-]+$/.test(normalized) || normalized.length < 16) {
+      return null;
+    }
+
+    try {
+      const base64 = normalized.replace(/-/g, "+").replace(/_/g, "/");
+      const padding = "=".repeat((4 - (base64.length % 4)) % 4);
+      return Buffer.from(base64 + padding, "base64").toString("utf8");
+    } catch {
+      return null;
+    }
   }
 
   private static collectCookieChunks(cookie: string): string[] {
@@ -235,13 +267,21 @@ export class MobbinAuth {
 
   /**
    * Rebuild the raw cookie string from a session object.
-   * Splits the JSON across two cookies to match Supabase's chunking behavior.
+   * Encodes the session using Supabase SSR's base64-url cookie format and
+   * splits it into chunks when it approaches browser cookie size limits.
    */
   private static buildCookieString(session: SupabaseSession): string {
-    const encoded = encodeURIComponent(JSON.stringify(session));
-    const midpoint = Math.ceil(encoded.length / 2);
-    const chunk0 = encoded.substring(0, midpoint);
-    const chunk1 = encoded.substring(midpoint);
-    return `${SUPABASE_COOKIE_PREFIX}.0=${chunk0}; ${SUPABASE_COOKIE_PREFIX}.1=${chunk1}`;
+    const encoded = `base64-${Buffer.from(JSON.stringify(session), "utf8").toString("base64url")}`;
+
+    if (encoded.length <= COOKIE_CHUNK_SIZE) {
+      return `${SUPABASE_COOKIE_PREFIX}=${encoded}`;
+    }
+
+    const chunks: string[] = [];
+    for (let index = 0; index < encoded.length; index += COOKIE_CHUNK_SIZE) {
+      chunks.push(encoded.slice(index, index + COOKIE_CHUNK_SIZE));
+    }
+
+    return chunks.map((chunk, index) => `${SUPABASE_COOKIE_PREFIX}.${index}=${chunk}`).join("; ");
   }
 }

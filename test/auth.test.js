@@ -21,8 +21,8 @@ test("auth parser accepts raw JSON session input", async () => {
   assert.equal(auth.getSession().access_token, session.access_token);
 
   const cookieValue = await auth.getCookieValue();
-  assert.match(cookieValue, /sb-ujasntkfphywizsdaapi-auth-token\.0=/);
-  assert.match(cookieValue, /sb-ujasntkfphywizsdaapi-auth-token\.1=/);
+  assert.match(cookieValue, /sb-ujasntkfphywizsdaapi-auth-token=/);
+  assert.match(cookieValue, /base64-/);
 });
 
 test("auth parser accepts chunked auth cookies with a different project ref", () => {
@@ -41,4 +41,15 @@ test("auth parser accepts a single unchunked auth cookie", () => {
   const auth = MobbinAuth.fromCookie(cookie);
 
   assert.equal(auth.getSession().user.email, session.user.email);
+});
+
+test("auth parser accepts base64-prefixed chunked auth cookies", () => {
+  const encoded = `base64-${Buffer.from(JSON.stringify(session), "utf8").toString("base64url")}`;
+  const midpoint = Math.ceil(encoded.length / 2);
+  const cookie =
+    `sb-customprojectref-auth-token.0=${encoded.slice(0, midpoint)}; ` +
+    `sb-customprojectref-auth-token.1=${encoded.slice(midpoint)}`;
+
+  const auth = MobbinAuth.fromCookie(cookie);
+  assert.equal(auth.getSession().access_token, session.access_token);
 });

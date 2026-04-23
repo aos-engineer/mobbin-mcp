@@ -162,51 +162,44 @@ node dist/index.js auth
 
 This is a one-time setup per machine. The session is stored globally and reused automatically across projects.
 
-The CLI accepts either a Supabase session from localStorage or the raw auth cookies. The more reliable path is localStorage:
+The CLI expects the two Supabase auth cookie chunks combined into one line:
 
 1. Open [mobbin.com](https://mobbin.com) and log in
 2. Open the browser console (`Cmd+Option+J`)
 3. Run:
 
 ```js
-copy(localStorage.getItem("sb-ujasntkfphywizsdaapi-auth-token"))
+copy(
+  document.cookie
+    .split("; ")
+    .filter((c) => c.startsWith("sb-ujasntkfphywizsdaapi-auth-token.0=") || c.startsWith("sb-ujasntkfphywizsdaapi-auth-token.1="))
+    .join("; ")
+)
 ```
 
 4. Paste that value into the CLI prompt
 
-If localStorage is empty for that key, the fallback is:
-
-```js
-copy(document.cookie)
-```
-
 Your session is saved to `~/.mobbin-mcp/auth.json` (or `XDG_CONFIG_HOME/mobbin-mcp/auth.json`) and automatically refreshed.
 
-> **What gets copied?** The CLI accepts either the raw JSON session from localStorage or the `sb-...-auth-token` cookies. Both are sensitive session credentials. They are stored locally on your machine at `~/.mobbin-mcp/auth.json` and are never sent anywhere except to Mobbin's API.
+> **What gets copied?** This copies only the two Supabase auth cookie chunks needed for Mobbin authentication. These are sensitive session credentials. They are stored locally on your machine at `~/.mobbin-mcp/auth.json` and are never sent anywhere except to Mobbin's API.
 
 **Option B: Environment variable (manual)**
 
 1. Open [mobbin.com](https://mobbin.com) in Chrome and log in
-2. Open DevTools (`Cmd+Option+I`) → **Application** tab → **Local Storage** → `https://mobbin.com`
-3. Copy the value of `sb-ujasntkfphywizsdaapi-auth-token`
-4. Set `MOBBIN_AUTH_COOKIE` to that value
-
-Cookie fallback:
-
-1. Open DevTools (`Cmd+Option+I`) → **Application** tab → **Cookies** → `https://mobbin.com`
-2. Copy either the single `sb-ujasntkfphywizsdaapi-auth-token` cookie, or the chunked pair `sb-ujasntkfphywizsdaapi-auth-token.0` and `.1`
-3. If you have chunked cookies, combine them into a single string:
+2. Open DevTools (`Cmd+Option+I`) → **Application** tab → **Cookies** → `https://mobbin.com`
+3. Copy the full values of `sb-ujasntkfphywizsdaapi-auth-token.0` and `sb-ujasntkfphywizsdaapi-auth-token.1`
+4. Combine them into a single string:
 
 ```
 sb-ujasntkfphywizsdaapi-auth-token.0=<value0>; sb-ujasntkfphywizsdaapi-auth-token.1=<value1>
 ```
-4. Set `MOBBIN_AUTH_COOKIE` to that value (see step 2 below)
+5. Set `MOBBIN_AUTH_COOKIE` to that value (see step 2 below)
 
 ### Environment variables
 
 | Variable | Purpose |
 | --- | --- |
-| `MOBBIN_AUTH_COOKIE` | Manual auth input: raw session JSON or auth cookie value |
+| `MOBBIN_AUTH_COOKIE` | Manual auth input: combined `sb-...auth-token.0/.1` cookie pair |
 | `MOBBIN_DATA_DIR` | Override the default data directory |
 | `MOBBIN_AUTH_FILE` | Override the auth session file path |
 | `MOBBIN_PROJECT_ROOT` | Explicit project root for capture storage |

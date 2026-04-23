@@ -36,6 +36,7 @@ export class MobbinAuth {
   private rawCookie: string;
   private refreshPromise: Promise<void> | null = null;
   private onSessionRefreshed?: (session: SupabaseSession) => void;
+  private hasServedInitialCookie = false;
 
   private constructor(
     session: SupabaseSession,
@@ -69,10 +70,19 @@ export class MobbinAuth {
   }
 
   async getCookieValue(): Promise<string> {
-    if (this.isExpiringSoon()) {
+    if (this.isExpired()) {
+      await this.refresh();
+    } else if (this.hasServedInitialCookie && this.isExpiringSoon()) {
       await this.refresh();
     }
+    this.hasServedInitialCookie = true;
     return this.rawCookie;
+  }
+
+  /** True if the access token has already expired. */
+  private isExpired(): boolean {
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    return nowSeconds >= this.session.expires_at;
   }
 
   /** True if the access token expires within {@link TOKEN_REFRESH_BUFFER_SECONDS}. */

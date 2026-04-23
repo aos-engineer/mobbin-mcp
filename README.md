@@ -211,6 +211,10 @@ sb-ujasntkfphywizsdaapi-auth-token.0=<value0>; sb-ujasntkfphywizsdaapi-auth-toke
 | `MOBBIN_AUTH_FILE` | Override the auth session file path |
 | `MOBBIN_PROJECT_ROOT` | Explicit project root for capture storage |
 | `PROJECT_ROOT` | Alternative explicit project root |
+| `MOBBIN_BASE_URL` | Override the Mobbin site base URL |
+| `MOBBIN_SUPABASE_URL` | Override the Mobbin Supabase project URL |
+| `MOBBIN_SUPABASE_PUBLISHABLE_KEY` | Override the Mobbin Supabase publishable key |
+| `MOBBIN_SUPABASE_COOKIE_PREFIX` | Override the Supabase auth cookie prefix |
 
 ### 2. Add to Claude Code
 

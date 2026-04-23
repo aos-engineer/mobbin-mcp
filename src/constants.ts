@@ -1,5 +1,6 @@
-export const MOBBIN_BASE_URL = "https://mobbin.com";
-export const SUPABASE_URL = "https://ujasntkfphywizsdaapi.supabase.co";
+export const MOBBIN_BASE_URL = process.env.MOBBIN_BASE_URL?.trim() || "https://mobbin.com";
+export const SUPABASE_URL =
+  process.env.MOBBIN_SUPABASE_URL?.trim() || "https://ujasntkfphywizsdaapi.supabase.co";
 export const DEFAULT_PAGE_SIZE = 24;
 export const DEFAULT_PAGE_INDEX = 0;
 export const MAX_PAGE_SIZE = 50;
@@ -20,7 +21,9 @@ export const COLOR_QUANTIZE_MAX = 248;
  * To find this yourself: open mobbin.com, DevTools → Network → filter for "supabase" →
  * check the `apikey` header on any request to ujasntkfphywizsdaapi.supabase.co.
  */
-export const SUPABASE_ANON_KEY = "sb_publishable_YptnKskI90SD2g25sAvVxQ_tZltjYFE";
+export const SUPABASE_ANON_KEY =
+  process.env.MOBBIN_SUPABASE_PUBLISHABLE_KEY?.trim() ||
+  "sb_publishable_YptnKskI90SD2g25sAvVxQ_tZltjYFE";
 
 /**
  * Cookie name prefix used by Supabase for this project.
@@ -28,7 +31,8 @@ export const SUPABASE_ANON_KEY = "sb_publishable_YptnKskI90SD2g25sAvVxQ_tZltjYFE
  * look for cookies starting with `sb-<project-ref>-auth-token`. The project ref
  * comes from the Supabase URL hostname (ujasntkfphywizsdaapi).
  */
-export const SUPABASE_COOKIE_PREFIX = "sb-ujasntkfphywizsdaapi-auth-token";
+export const SUPABASE_COOKIE_PREFIX =
+  process.env.MOBBIN_SUPABASE_COOKIE_PREFIX?.trim() || "sb-ujasntkfphywizsdaapi-auth-token";
 
 /** Refresh the token this many seconds before it actually expires. */
 export const TOKEN_REFRESH_BUFFER_SECONDS = 300;

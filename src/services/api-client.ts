@@ -1,4 +1,3 @@
-import sharp from "sharp";
 import {
   MOBBIN_BASE_URL,
   ALLOWED_IMAGE_HOSTS,
@@ -13,6 +12,7 @@ import {
   COLOR_QUANTIZE_STEP,
   COLOR_QUANTIZE_MAX,
 } from "../constants.js";
+import { getSharp } from "../utils/sharp.js";
 import type {
   AppResult,
   ScreenResult,
@@ -419,6 +419,7 @@ export class MobbinApiClient {
    * Returns an array of hex color strings sorted by frequency.
    */
   async extractColors(imageBuffer: Buffer, maxColors: number = 8): Promise<string[]> {
+    const sharp = await getSharp();
     // Resize to small thumbnail for faster color sampling
     const { data } = await sharp(imageBuffer)
       .resize(COLOR_SAMPLE_SIZE, COLOR_SAMPLE_SIZE, { fit: "cover" })

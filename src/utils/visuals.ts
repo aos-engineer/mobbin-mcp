@@ -1,5 +1,5 @@
-import sharp from "sharp";
 import type { CapturedArtifact } from "../types.js";
+import { getSharp } from "./sharp.js";
 
 export interface VisualCandidate {
   label: string;
@@ -52,13 +52,14 @@ export function collectArtifactVisualCandidates(artifact: CapturedArtifact): Vis
 }
 
 export async function computePerceptualHash(imageBuffer: Buffer): Promise<string> {
+  const sharp = await getSharp();
   const { data } = await sharp(imageBuffer)
     .resize(8, 8, { fit: "cover" })
     .grayscale()
     .raw()
     .toBuffer({ resolveWithObject: true });
 
-  const values = Array.from(data);
+  const values = Array.from(data as Uint8Array, (value) => Number(value));
   const average = values.reduce((sum, value) => sum + value, 0) / values.length;
   const bits = values.map((value) => (value >= average ? "1" : "0")).join("");
 
@@ -147,7 +148,8 @@ export async function buildContactSheet(params: {
   const canvasWidth = columns * cellWidth;
   const canvasHeight = rows * cellHeight;
 
-  const composites: sharp.OverlayOptions[] = [];
+  const sharp = await getSharp();
+  const composites: Array<{ input: Buffer; left: number; top: number }> = [];
 
   for (const [index, item] of items.entries()) {
     const column = index % columns;

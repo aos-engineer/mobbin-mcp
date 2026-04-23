@@ -119,7 +119,8 @@ Published package:
 Recommended install path:
 
 ```bash
-npx -y @aos-engineer/mobbin-mcp auth
+npm install -g @aos-engineer/mobbin-mcp
+mobbin-mcp auth
 ```
 
 Contributor and fallback paths:
@@ -142,19 +143,25 @@ node dist/index.js
 
 ### 1. Authenticate
 
-**Option A: npm package path (recommended)**
+**Option A: global install (recommended for Claude Code)**
+
+```bash
+mobbin-mcp auth
+```
+
+**Option B: npm package path**
 
 ```bash
 npx -y @aos-engineer/mobbin-mcp auth
 ```
 
-**Option B: GitHub fallback**
+**Option C: GitHub fallback**
 
 ```bash
 npx -y github:aos-engineer/mobbin-mcp auth
 ```
 
-**Option C: local checkout**
+**Option D: local checkout**
 
 ```bash
 node dist/index.js auth
@@ -207,7 +214,13 @@ sb-ujasntkfphywizsdaapi-auth-token.0=<value0>; sb-ujasntkfphywizsdaapi-auth-toke
 
 ### 2. Add to Claude Code
 
-Recommended npm package path:
+Recommended global install path:
+
+```bash
+claude mcp add mobbin -- mobbin-mcp
+```
+
+npm fallback:
 
 ```bash
 claude mcp add mobbin -- npx -y @aos-engineer/mobbin-mcp
@@ -223,7 +236,13 @@ If you used the CLI auth command (Option A), no additional config is needed — 
 
 If using the environment variable (Option B), pass it when adding:
 
-Recommended npm package path:
+Recommended global install path:
+
+```bash
+claude mcp add mobbin -e MOBBIN_AUTH_COOKIE="sb-ujasntkfphywizsdaapi-auth-token.0=...; sb-ujasntkfphywizsdaapi-auth-token.1=..." -- mobbin-mcp
+```
+
+npm fallback:
 
 ```bash
 claude mcp add mobbin -e MOBBIN_AUTH_COOKIE="sb-ujasntkfphywizsdaapi-auth-token.0=...; sb-ujasntkfphywizsdaapi-auth-token.1=..." -- npx -y @aos-engineer/mobbin-mcp
@@ -237,7 +256,19 @@ claude mcp add mobbin -e MOBBIN_AUTH_COOKIE="sb-ujasntkfphywizsdaapi-auth-token.
 
 ### 3. Add to Codex
 
-If your Codex runtime is configured to use stdio MCP servers, point it at the published package:
+If your Codex runtime is configured to use stdio MCP servers, prefer the installed binary:
+
+```json
+{
+  "mcpServers": {
+    "mobbin": {
+      "command": "mobbin-mcp"
+    }
+  }
+}
+```
+
+Package fallback:
 
 ```json
 {

@@ -12,6 +12,7 @@ import {
   COLOR_QUANTIZE_STEP,
   COLOR_QUANTIZE_MAX,
 } from "../constants.js";
+import { redactSensitiveText } from "../utils/security.js";
 import { getSharp } from "../utils/sharp.js";
 import type {
   AppResult,
@@ -99,7 +100,7 @@ export class MobbinApiClient {
       if (!res.ok) {
         const text = await res.text().catch(() => "");
         throw new Error(
-          `Mobbin API error: ${res.status} ${res.statusText} - ${path}${text ? `: ${text.substring(0, 200)}` : ""}`,
+          `Mobbin API error: ${res.status} ${res.statusText} - ${path}${text ? `: ${redactSensitiveText(text)}` : ""}`,
         );
       }
 

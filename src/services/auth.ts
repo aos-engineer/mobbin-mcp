@@ -1,9 +1,11 @@
 import {
+  MOBBIN_BASE_URL,
   SUPABASE_URL,
   SUPABASE_ANON_KEY,
   SUPABASE_COOKIE_PREFIX,
   TOKEN_REFRESH_BUFFER_SECONDS,
 } from "../constants.js";
+import { redactSensitiveText } from "../utils/security.js";
 
 export interface SupabaseSession {
   access_token: string;
@@ -20,6 +22,51 @@ export interface SupabaseSession {
 }
 
 const COOKIE_CHUNK_SIZE = 3_800;
+
+export interface MobbinRuntimeConfig {
+  mobbinBaseUrl: string;
+  supabaseUrl: string;
+  supabaseAnonKey: string;
+  supabaseCookiePrefix: string;
+}
+
+const DEFAULT_RUNTIME_CONFIG: MobbinRuntimeConfig = {
+  mobbinBaseUrl: MOBBIN_BASE_URL,
+  supabaseUrl: SUPABASE_URL,
+  supabaseAnonKey: SUPABASE_ANON_KEY,
+  supabaseCookiePrefix: SUPABASE_COOKIE_PREFIX,
+};
+
+let runtimeConfig: MobbinRuntimeConfig = { ...DEFAULT_RUNTIME_CONFIG };
+let runtimeConfigDiscoveryPromise: Promise<MobbinRuntimeConfig | null> | null = null;
+
+export function inferCookiePrefixFromSupabaseUrl(supabaseUrl: string): string | null {
+  try {
+    const parsed = new URL(supabaseUrl);
+    const projectRef = parsed.hostname.match(/^([a-z0-9]+)\.supabase\.co$/i)?.[1];
+    return projectRef ? `sb-${projectRef}-auth-token` : null;
+  } catch {
+    return null;
+  }
+}
+
+export function extractNextStaticScriptUrls(html: string): string[] {
+  const matches = [...html.matchAll(/<script[^>]+src=["']([^"']*\/_next\/static\/chunks\/[^"']+\.js[^"']*)["']/g)];
+  const urls = matches.map((match) => match[1]);
+  return Array.from(new Set(urls));
+}
+
+export function extractMobbinRuntimeConfigFromBundle(bundle: string): Partial<MobbinRuntimeConfig> {
+  const supabaseUrl = bundle.match(/NEXT_PUBLIC_SUPABASE_URL\s*:\s*"([^"]+)"/)?.[1];
+  const supabaseAnonKey = bundle.match(/NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY\s*:\s*"([^"]+)"/)?.[1];
+  const supabaseCookiePrefix = supabaseUrl ? inferCookiePrefixFromSupabaseUrl(supabaseUrl) : null;
+
+  return {
+    ...(supabaseUrl ? { supabaseUrl } : {}),
+    ...(supabaseAnonKey ? { supabaseAnonKey } : {}),
+    ...(supabaseCookiePrefix ? { supabaseCookiePrefix } : {}),
+  };
+}
 
 /**
  * Manages Supabase auth tokens for the Mobbin API.
@@ -107,21 +154,34 @@ export class MobbinAuth {
   }
 
   private async doRefresh(): Promise<void> {
-    const res = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        apikey: SUPABASE_ANON_KEY,
-      },
-      body: JSON.stringify({
-        refresh_token: this.session.refresh_token,
-      }),
-    });
+    let config = MobbinAuth.getRuntimeConfig();
+    let res = await MobbinAuth.refreshWithConfig(this.session.refresh_token, config);
 
     if (!res.ok) {
       const text = await res.text().catch(() => "");
+      const discoveredConfig =
+        !MobbinAuth.hasExplicitSupabaseOverrides() &&
+        MobbinAuth.shouldRetryWithDiscoveredConfig(res.status, text)
+          ? await MobbinAuth.discoverRuntimeConfig()
+          : null;
+
+      if (discoveredConfig && MobbinAuth.applyRuntimeConfig(discoveredConfig)) {
+        config = MobbinAuth.getRuntimeConfig();
+        res = await MobbinAuth.refreshWithConfig(this.session.refresh_token, config);
+        if (res.ok) {
+          const newSession = (await res.json()) as SupabaseSession;
+          this.session = newSession;
+          this.rawCookie = MobbinAuth.buildCookieString(newSession);
+
+          if (this.onSessionRefreshed) {
+            this.onSessionRefreshed(newSession);
+          }
+          return;
+        }
+      }
+
       throw new Error(
-        `Token refresh failed (${res.status}): ${text.substring(0, 200)}. ` +
+        `Token refresh failed (${res.status}): ${redactSensitiveText(text)}. ` +
           "Run 'npx mobbin-mcp auth' to re-authenticate.",
       );
     }
@@ -133,6 +193,130 @@ export class MobbinAuth {
     if (this.onSessionRefreshed) {
       this.onSessionRefreshed(newSession);
     }
+  }
+
+  private static getRuntimeConfig(): MobbinRuntimeConfig {
+    return runtimeConfig;
+  }
+
+  private static applyRuntimeConfig(nextConfig: Partial<MobbinRuntimeConfig>): boolean {
+    const merged: MobbinRuntimeConfig = {
+      ...runtimeConfig,
+      ...Object.fromEntries(
+        Object.entries(nextConfig).filter(([, value]) => typeof value === "string" && value.trim().length > 0),
+      ),
+    };
+
+    const changed =
+      merged.mobbinBaseUrl !== runtimeConfig.mobbinBaseUrl ||
+      merged.supabaseUrl !== runtimeConfig.supabaseUrl ||
+      merged.supabaseAnonKey !== runtimeConfig.supabaseAnonKey ||
+      merged.supabaseCookiePrefix !== runtimeConfig.supabaseCookiePrefix;
+
+    runtimeConfig = merged;
+    return changed;
+  }
+
+  private static hasExplicitSupabaseOverrides(): boolean {
+    return Boolean(
+      process.env.MOBBIN_SUPABASE_URL?.trim() ||
+        process.env.MOBBIN_SUPABASE_PUBLISHABLE_KEY?.trim() ||
+        process.env.MOBBIN_SUPABASE_COOKIE_PREFIX?.trim(),
+    );
+  }
+
+  private static shouldRetryWithDiscoveredConfig(status: number, bodyText: string): boolean {
+    const lowered = bodyText.toLowerCase();
+    return (
+      status === 401 ||
+      lowered.includes("unregistered api key") ||
+      lowered.includes("not registered for this project") ||
+      lowered.includes("invalid api key")
+    );
+  }
+
+  private static async refreshWithConfig(
+    refreshToken: string,
+    config: MobbinRuntimeConfig,
+  ): Promise<Response> {
+    return fetch(`${config.supabaseUrl}/auth/v1/token?grant_type=refresh_token`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        apikey: config.supabaseAnonKey,
+      },
+      body: JSON.stringify({
+        refresh_token: refreshToken,
+      }),
+    });
+  }
+
+  private static async discoverRuntimeConfig(fetchImpl: typeof fetch = fetch): Promise<MobbinRuntimeConfig | null> {
+    if (runtimeConfigDiscoveryPromise) {
+      return runtimeConfigDiscoveryPromise;
+    }
+
+    runtimeConfigDiscoveryPromise = (async () => {
+      try {
+        const baseConfig = MobbinAuth.getRuntimeConfig();
+        const html = await fetchImpl(baseConfig.mobbinBaseUrl).then(async (response) => {
+          if (!response.ok) {
+            throw new Error(`Failed to fetch Mobbin homepage (${response.status})`);
+          }
+          return response.text();
+        });
+
+        const htmlConfig = extractMobbinRuntimeConfigFromBundle(html);
+        if (htmlConfig.supabaseUrl && htmlConfig.supabaseAnonKey) {
+          return {
+            ...baseConfig,
+            ...htmlConfig,
+          };
+        }
+
+        const scriptUrls = extractNextStaticScriptUrls(html)
+          .sort((a, b) => {
+            const rank = (url: string) =>
+              url.includes("main-app")
+                ? 0
+                : url.includes("app/layout")
+                  ? 1
+                  : url.includes("app/")
+                    ? 2
+                    : 3;
+            return rank(a) - rank(b);
+          })
+          .slice(0, 12);
+
+        for (const scriptUrl of scriptUrls) {
+          const absoluteUrl = new URL(scriptUrl, baseConfig.mobbinBaseUrl).toString();
+          const bundle = await fetchImpl(absoluteUrl).then(async (response) => {
+            if (!response.ok) {
+              return "";
+            }
+            return response.text();
+          });
+
+          if (!bundle) continue;
+
+          const discovered = extractMobbinRuntimeConfigFromBundle(bundle);
+          if (discovered.supabaseUrl && discovered.supabaseAnonKey) {
+            return {
+              ...baseConfig,
+              ...discovered,
+            };
+          }
+        }
+
+        return null;
+      } catch {
+        return null;
+      } finally {
+        runtimeConfigDiscoveryPromise = null;
+      }
+    })();
+
+    return runtimeConfigDiscoveryPromise;
   }
 
   private static normalizeInput(input: string): string {
@@ -269,9 +453,9 @@ export class MobbinAuth {
 
     throw new Error(
       `Failed to parse Supabase session from input. ` +
-        `Provide either the '${SUPABASE_COOKIE_PREFIX}' cookie value, the ` +
-        `'${SUPABASE_COOKIE_PREFIX}.0/.1' cookie pair, or the raw JSON session ` +
-        `from localStorage '${SUPABASE_COOKIE_PREFIX}'.`,
+        `Provide either the '${MobbinAuth.getRuntimeConfig().supabaseCookiePrefix}' cookie value, the ` +
+        `'${MobbinAuth.getRuntimeConfig().supabaseCookiePrefix}.0/.1' cookie pair, or the raw JSON session ` +
+        `from localStorage '${MobbinAuth.getRuntimeConfig().supabaseCookiePrefix}'.`,
     );
   }
 
@@ -282,9 +466,10 @@ export class MobbinAuth {
    */
   private static buildCookieString(session: SupabaseSession): string {
     const encoded = `base64-${Buffer.from(JSON.stringify(session), "utf8").toString("base64url")}`;
+    const cookiePrefix = MobbinAuth.getRuntimeConfig().supabaseCookiePrefix;
 
     if (encoded.length <= COOKIE_CHUNK_SIZE) {
-      return `${SUPABASE_COOKIE_PREFIX}=${encoded}`;
+      return `${cookiePrefix}=${encoded}`;
     }
 
     const chunks: string[] = [];
@@ -292,6 +477,6 @@ export class MobbinAuth {
       chunks.push(encoded.slice(index, index + COOKIE_CHUNK_SIZE));
     }
 
-    return chunks.map((chunk, index) => `${SUPABASE_COOKIE_PREFIX}.${index}=${chunk}`).join("; ");
+    return chunks.map((chunk, index) => `${cookiePrefix}.${index}=${chunk}`).join("; ");
   }
 }

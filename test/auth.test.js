@@ -1,7 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-const { MobbinAuth } = await import("../dist/services/auth.js");
+const {
+  MobbinAuth,
+  inferCookiePrefixFromSupabaseUrl,
+  extractNextStaticScriptUrls,
+  extractMobbinRuntimeConfigFromBundle,
+} = await import("../dist/services/auth.js");
+const { redactSensitiveText } = await import("../dist/utils/security.js");
 
 const session = {
   access_token: "access-token",
@@ -52,4 +58,49 @@ test("auth parser accepts base64-prefixed chunked auth cookies", () => {
 
   const auth = MobbinAuth.fromCookie(cookie);
   assert.equal(auth.getSession().access_token, session.access_token);
+});
+
+test("can infer a cookie prefix from the Supabase project URL", () => {
+  assert.equal(
+    inferCookiePrefixFromSupabaseUrl("https://ujasntkfphywizsdaapi.supabase.co"),
+    "sb-ujasntkfphywizsdaapi-auth-token",
+  );
+});
+
+test("can extract Next.js chunk URLs from Mobbin html", () => {
+  const html = `
+    <html>
+      <script src="/_next/static/chunks/main-app-abc.js?dpl=123" async></script>
+      <script src="/_next/static/chunks/app/layout-def.js?dpl=123" async></script>
+    </html>
+  `;
+
+  assert.deepEqual(extractNextStaticScriptUrls(html), [
+    "/_next/static/chunks/main-app-abc.js?dpl=123",
+    "/_next/static/chunks/app/layout-def.js?dpl=123",
+  ]);
+});
+
+test("can extract live Mobbin Supabase config from a bundle", () => {
+  const bundle = `
+    NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY:"sb_publishable_live_key",
+    NEXT_PUBLIC_SUPABASE_URL:"https://ujasntkfphywizsdaapi.supabase.co",
+  `;
+
+  assert.deepEqual(extractMobbinRuntimeConfigFromBundle(bundle), {
+    supabaseAnonKey: "sb_publishable_live_key",
+    supabaseUrl: "https://ujasntkfphywizsdaapi.supabase.co",
+    supabaseCookiePrefix: "sb-ujasntkfphywizsdaapi-auth-token",
+  });
+});
+
+test("redacts obvious auth secrets from upstream response text", () => {
+  const text =
+    'refresh_token=secret-token access_token="another-secret" sb-ujasntkfphywizsdaapi-auth-token.0=abc123 eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.abc.def';
+
+  const redacted = redactSensitiveText(text, 500);
+  assert.match(redacted, /refresh_token=\[REDACTED\]/);
+  assert.match(redacted, /access_token=\[REDACTED\]/);
+  assert.match(redacted, /sb-ujasntkfphywizsdaapi-auth-token\.0=\[REDACTED\]/);
+  assert.match(redacted, /\[REDACTED_JWT\]/);
 });

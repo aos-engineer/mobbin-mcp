@@ -23,6 +23,18 @@ export interface SearchableApp {
 }
 
 /**
+ * Lightweight site record returned by `/api/search-bar/fetch-searchable-sites`.
+ * Mobbin stores sites separately from apps, so they do not have a mobile/web platform.
+ */
+export interface SearchableSite {
+  id: string;
+  name: string;
+  logo_url: string;
+  tagline: string;
+  keywords: string[];
+}
+
+/**
  * Full app record returned by `/api/content/search-apps`.
  * Contains version info, metrics, and preview data.
  */

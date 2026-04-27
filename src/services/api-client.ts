@@ -20,6 +20,7 @@ import type {
   FlowResult,
   Collection,
   SearchableApp,
+  SearchableSite,
   ContentSearchResponse,
   ValueResponse,
 } from "../types.js";
@@ -238,10 +239,12 @@ export class MobbinApiClient {
   }): Promise<{
     value: {
       experience: string;
-      primary: Array<{ id: string; type: string }>;
-      other: Array<{ id: string; type: string }>;
-      secondaryPlatform: Array<{ id: string; type: string }>;
-      sites: Array<{ id: string; type: string }>;
+      primary?: Array<{ id: string; type: string }>;
+      other?: Array<{ id: string; type: string }>;
+      secondaryPlatform?: Array<{ id: string; type: string }>;
+      sites?: Array<{ id: string; type: string }>;
+      web?: Array<{ id: string; type: string }>;
+      ios?: Array<{ id: string; type: string }>;
     };
   }> {
     return this.getOrSetCache(
@@ -268,6 +271,47 @@ export class MobbinApiClient {
     return this.getOrSetCache(`searchable-apps:${platform}`, 60 * 60 * 1000, () =>
       this.request(`/api/searchable-apps/${platform}`),
     );
+  }
+
+  /**
+   * Fetch the full list of Mobbin sites for client-side search/autocomplete.
+   * Sites are a separate Mobbin experience from iOS/Android/Web apps.
+   * Endpoint: `POST /api/search-bar/fetch-searchable-sites`
+   */
+  async getSearchableSites(): Promise<SearchableSite[]> {
+    return this.getOrSetCache("searchable-sites", 60 * 60 * 1000, () =>
+      this.request<ValueResponse<SearchableSite[]>>("/api/search-bar/fetch-searchable-sites", {
+        method: "POST",
+      }).then((response) => response.value),
+    );
+  }
+
+  /**
+   * Search Mobbin's sites collection locally using the searchable-sites payload.
+   * The Mobbin search-bar endpoint returns IDs only, so this keeps rich metadata in the result.
+   */
+  async searchSites(params: {
+    query?: string;
+    pageSize?: number;
+    pageIndex?: number;
+  }): Promise<SearchableSite[]> {
+    const sites = await this.getSearchableSites();
+    const normalizedQuery = params.query?.trim().toLowerCase();
+    const matchedSites = normalizedQuery
+      ? sites
+          .map((site) => ({
+            site,
+            rank: rankSiteMatch(site, normalizedQuery),
+          }))
+          .filter((match) => match.rank !== Number.POSITIVE_INFINITY)
+          .sort((a, b) => a.rank - b.rank || a.site.name.localeCompare(b.site.name))
+          .map((match) => match.site)
+      : sites;
+
+    const pageSize = params.pageSize ?? DEFAULT_PAGE_SIZE;
+    const pageIndex = params.pageIndex ?? DEFAULT_PAGE_INDEX;
+    const start = pageIndex * pageSize;
+    return matchedSites.slice(start, start + pageSize);
   }
 
   /**
@@ -453,4 +497,18 @@ export class MobbinApiClient {
       .slice(0, maxColors)
       .map(([hex]) => hex);
   }
+}
+
+function rankSiteMatch(site: SearchableSite, query: string): number {
+  const name = site.name.toLowerCase();
+  const tagline = site.tagline.toLowerCase();
+  const keywords = site.keywords.map((keyword) => keyword.toLowerCase());
+
+  if (name === query) return 0;
+  if (name.startsWith(query)) return 1;
+  if (keywords.some((keyword) => keyword === query)) return 2;
+  if (name.includes(query)) return 3;
+  if (tagline.includes(query)) return 4;
+  if (keywords.some((keyword) => keyword.includes(query))) return 5;
+  return Number.POSITIVE_INFINITY;
 }

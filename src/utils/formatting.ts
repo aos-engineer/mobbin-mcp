@@ -1,5 +1,5 @@
 import { CHARACTER_LIMIT } from "../constants.js";
-import type { AppResult, ScreenResult, FlowResult, Collection } from "../types.js";
+import type { AppResult, ScreenResult, FlowResult, Collection, SearchableSite } from "../types.js";
 
 export function formatApps(apps: AppResult[]): string {
   if (apps.length === 0) return "No apps found.";
@@ -23,6 +23,24 @@ export function formatApps(apps: AppResult[]): string {
       .filter(Boolean)
       .join("\n");
   });
+
+  return truncate(lines.join("\n\n"));
+}
+
+export function formatSites(sites: SearchableSite[]): string {
+  if (sites.length === 0) return "No sites found.";
+
+  const lines = sites.map((site, i) =>
+    [
+      `### ${i + 1}. ${site.name}`,
+      `- **Tagline**: ${site.tagline}`,
+      `- **Site ID**: ${site.id}`,
+      site.keywords.length > 0 ? `- **Keywords**: ${site.keywords.join(", ")}` : "",
+      site.logo_url ? `- **Logo**: ${site.logo_url}` : "",
+    ]
+      .filter(Boolean)
+      .join("\n"),
+  );
 
   return truncate(lines.join("\n\n"));
 }

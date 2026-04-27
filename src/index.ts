@@ -6,7 +6,13 @@ import { z } from "zod";
 import { MobbinAuth } from "./services/auth.js";
 import { MobbinApiClient } from "./services/api-client.js";
 import { DEFAULT_PAGE_SIZE } from "./constants.js";
-import type { AgentTarget, CapturedArtifact, CapturedArtifactType, DictionaryCategory } from "./types.js";
+import type {
+  AgentTarget,
+  CapturedArtifact,
+  CapturedArtifactType,
+  DictionaryCategory,
+  SearchableSite,
+} from "./types.js";
 import { readStoredSession, writeStoredSession, AUTH_FILE, DATA_DIR } from "./utils/auth-store.js";
 import { resolveProjectContext } from "./utils/project-context.js";
 import {
@@ -35,6 +41,7 @@ import {
   formatFlows,
   formatScreenDetail,
   formatScreens,
+  formatSites,
 } from "./utils/formatting.js";
 import { syncSharedStore } from "./utils/shared-store.js";
 import {
@@ -569,6 +576,26 @@ async function main() {
   );
 
   server.tool(
+    "mobbin_search_sites",
+    "Search Mobbin's sites collection by name, tagline, or keyword. Sites are separate from the iOS, Android, and Web app platforms.",
+    {
+      query: z.string().optional().describe("Search query, such as a site name or keyword"),
+      page_size: z.number().min(1).max(50).default(DEFAULT_PAGE_SIZE).describe("Results per page"),
+      page_index: z.number().min(0).default(0).describe("Page number (0-indexed)"),
+    },
+    async ({ query, page_size, page_index }) => {
+      const result = await client.searchSites({
+        query,
+        pageSize: page_size,
+        pageIndex: page_index,
+      });
+      return {
+        content: [{ type: "text", text: formatSites(result) }],
+      };
+    },
+  );
+
+  server.tool(
     "mobbin_search_flows",
     "Search user flows/journeys across all apps on Mobbin. Filter by flow actions.",
     {
@@ -596,36 +623,67 @@ async function main() {
 
   server.tool(
     "mobbin_quick_search",
-    "Quick autocomplete search for apps by name.",
+    "Quick autocomplete search for apps or sites by name.",
     {
       query: z.string().describe("Search query"),
-      platform: z.enum(["ios", "android", "web"]).default("ios").describe("Platform to search"),
+      platform: z
+        .enum(["ios", "android", "web", "sites"])
+        .default("ios")
+        .describe("Platform to search, or 'sites' for Mobbin's sites collection"),
     },
     async ({ query, platform }) => {
-      const [searchResult, allApps] = await Promise.all([
+      if (platform === "sites") {
+        const [searchResult, allSites] = await Promise.all([
+          client.autocompleteSearch({ query, experience: "sites" }),
+          client.getSearchableSites(),
+        ]);
+        const siteMap = new Map(allSites.map((site) => [site.id, site]));
+        const matchedSites = [
+          ...(searchResult.value.primary ?? []),
+          ...(searchResult.value.other ?? []),
+        ]
+          .filter((item) => item.type === "site")
+          .map((item) => siteMap.get(item.id))
+          .filter((site): site is SearchableSite => Boolean(site));
+
+        return { content: [{ type: "text", text: formatSites(matchedSites) }] };
+      }
+
+      const [searchResult, allApps, allSites] = await Promise.all([
         client.autocompleteSearch({ query, platform }),
         client.getSearchableApps(platform),
+        client.getSearchableSites(),
       ]);
 
       const appMap = new Map(allApps.map((app) => [app.id, app]));
-      const matchedApps = [...searchResult.value.primary, ...searchResult.value.other]
+      const matchedApps = [...(searchResult.value.primary ?? []), ...(searchResult.value.other ?? [])]
         .filter((item) => item.type === "app")
         .map((item) => appMap.get(item.id))
         .filter(Boolean);
+      const siteMap = new Map(allSites.map((site) => [site.id, site]));
+      const matchedSites = (searchResult.value.sites ?? [])
+        .filter((item) => item.type === "site")
+        .map((item) => siteMap.get(item.id))
+        .filter((site): site is SearchableSite => Boolean(site));
 
-      if (matchedApps.length === 0) {
-        return { content: [{ type: "text", text: "No apps found." }] };
+      if (matchedApps.length === 0 && matchedSites.length === 0) {
+        return { content: [{ type: "text", text: "No apps or sites found." }] };
       }
 
-      const text = matchedApps
-        .map((app, index) =>
-          [
-            `${index + 1}. **${app!.appName}** — ${app!.appTagline}`,
-            `   ID: ${app!.id} | Platform: ${app!.platform}`,
-            `   Logo: ${app!.appLogoUrl}`,
-          ].join("\n"),
-        )
-        .join("\n\n");
+      const appText =
+        matchedApps.length > 0
+          ? matchedApps
+              .map((app, index) =>
+                [
+                  `${index + 1}. **${app!.appName}** — ${app!.appTagline}`,
+                  `   ID: ${app!.id} | Platform: ${app!.platform}`,
+                  `   Logo: ${app!.appLogoUrl}`,
+                ].join("\n"),
+              )
+              .join("\n\n")
+          : "";
+      const siteText = matchedSites.length > 0 ? `## Site matches\n\n${formatSites(matchedSites)}` : "";
+      const text = [appText, siteText].filter(Boolean).join("\n\n");
 
       return { content: [{ type: "text", text }] };
     },

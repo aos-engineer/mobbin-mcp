@@ -34,6 +34,29 @@ export interface SearchableSite {
   keywords: string[];
 }
 
+/** A copyable section record from Mobbin's sites experience. */
+export interface SiteSectionResult {
+  id: string;
+  siteId: string;
+  siteVersionId: string;
+  siteName: string;
+  pageUrl: string;
+  type: string;
+  pageImageUrl: string;
+  sectionImageUrl: string;
+  pageVideoUrl?: string;
+  videoTimestampStartMs?: number;
+  videoTimestampEndMs?: number;
+  imagePositionYStart?: number;
+  imagePositionYEnd?: number;
+  displayOrder: number;
+  patterns: string[];
+  popularityMetric: number;
+  trendingMetric: number;
+  metadata?: { width?: number; height?: number };
+  textPreview?: string;
+}
+
 /**
  * Full app record returned by `/api/content/search-apps`.
  * Contains version info, metrics, and preview data.

@@ -55,7 +55,8 @@ Removed limitations from the old shape:
 | --- | --- |
 | `mobbin_search_apps` | Search and browse apps by category and platform |
 | `mobbin_search_sites` | Search Mobbin's separate sites collection by name, tagline, or keyword |
-| `mobbin_search_screens` | Search screens by UI patterns, elements, or text content |
+| `mobbin_get_site_sections` | Fetch copyable site sections with image URLs, source URLs, patterns, crop bounds, and video segment metadata |
+| `mobbin_search_screens` | Search iOS, Android, and Web app screens by UI patterns, elements, or text content |
 | `mobbin_search_flows` | Search user flows by action type |
 | `mobbin_quick_search` | Fast autocomplete search for apps or sites by name |
 | `mobbin_popular_apps` | Get popular apps grouped by category |

@@ -42,6 +42,7 @@ import {
   formatFlows,
   formatScreenDetail,
   formatScreens,
+  formatSiteSections,
   formatSites,
 } from "./utils/formatting.js";
 import { syncSharedStore } from "./utils/shared-store.js";
@@ -569,7 +570,7 @@ async function main() {
 
   server.tool(
     "mobbin_search_screens",
-    "Search screens across all apps on Mobbin. Filter by screen patterns, UI elements, or text content.",
+    "Search screens across iOS, Android, and Web apps on Mobbin. For Mobbin's sites collection, use mobbin_get_site_sections.",
     {
       platform: z.enum(["ios", "android", "web"]).default("ios").describe("Platform to search"),
       screen_patterns: z.array(z.string()).optional().describe("Screen patterns to filter by"),
@@ -611,7 +612,7 @@ async function main() {
 
   server.tool(
     "mobbin_search_sites",
-    "Search Mobbin's sites collection by name, tagline, or keyword. Sites are separate from the iOS, Android, and Web app platforms.",
+    "Search Mobbin's sites collection by name, tagline, or keyword. Use mobbin_get_site_sections to fetch the copyable site sections.",
     {
       query: z.string().optional().describe("Search query, such as a site name or keyword"),
       page_size: z.number().min(1).max(50).default(DEFAULT_PAGE_SIZE).describe("Results per page"),
@@ -625,6 +626,33 @@ async function main() {
       });
       return {
         content: [{ type: "text", text: formatSites(result) }],
+      };
+    },
+  );
+
+  server.tool(
+    "mobbin_get_site_sections",
+    "Fetch copyable sections for a Mobbin site, including section image URLs, source page URLs, patterns, crop bounds, and video segment metadata when available.",
+    {
+      site_id: z.string().optional().describe("Mobbin site ID. If omitted, query is used to find a site."),
+      site_name: z
+        .string()
+        .optional()
+        .describe("Site name used to resolve the Mobbin URL when site_id is not in searchable-site metadata"),
+      query: z.string().optional().describe("Site search query, such as 'luffu'"),
+      page_size: z.number().min(1).max(50).default(DEFAULT_PAGE_SIZE).describe("Results per page"),
+      page_index: z.number().min(0).default(0).describe("Page number (0-indexed)"),
+    },
+    async ({ site_id, site_name, query, page_size, page_index }) => {
+      const result = await client.getSiteSections({
+        siteId: site_id,
+        siteName: site_name,
+        query,
+        pageSize: page_size,
+        pageIndex: page_index,
+      });
+      return {
+        content: [{ type: "text", text: formatSiteSections(result) }],
       };
     },
   );

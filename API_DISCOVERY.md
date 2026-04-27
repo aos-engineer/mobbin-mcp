@@ -314,6 +314,28 @@ Body: `null` (no body needed)
 
 Body: `null`
 
+Returns site metadata for Mobbin's separate sites collection. Site detail pages redirect from:
+
+```
+/sites/{site-slug}-{site-uuid}
+```
+
+to:
+
+```
+/sites/{site-slug}-{site-uuid}/{site-version-uuid}/preview
+```
+
+The copyable site sections live under:
+
+```
+/sites/{site-slug}-{site-uuid}/{site-version-uuid}/sections
+```
+
+The sections page embeds a Next.js RSC payload containing a `sections` array with `page_url`,
+`page_image_url`, optional `page_video_url`, crop bounds, video timestamps, OCR metadata, and
+section `patterns`.
+
 ---
 
 ## Browse & Filter Endpoints

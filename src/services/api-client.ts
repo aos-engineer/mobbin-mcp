@@ -21,6 +21,7 @@ import type {
   Collection,
   SearchableApp,
   SearchableSite,
+  SiteSectionResult,
   ContentSearchResponse,
   ValueResponse,
 } from "../types.js";
@@ -109,6 +110,42 @@ export class MobbinApiClient {
     } catch (error) {
       if (error instanceof Error && error.name === "AbortError") {
         throw new Error(`Mobbin API request timed out after ${API_FETCH_TIMEOUT_MS}ms: ${path}`, {
+          cause: error,
+        });
+      }
+      throw error;
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+
+  /** Fetch an authenticated Mobbin page as text. Used for Next.js RSC-backed site pages. */
+  private async requestText(
+    path: string,
+    options: { redirect?: "error" | "follow" | "manual" } = {},
+  ): Promise<Response> {
+    const cookie = await this.auth.getCookieValue();
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), API_FETCH_TIMEOUT_MS);
+
+    try {
+      const res = await fetch(`${MOBBIN_BASE_URL}${path}`, {
+        headers: { Cookie: cookie },
+        redirect: options.redirect ?? "follow",
+        signal: controller.signal,
+      });
+
+      if (!res.ok && (res.status < 300 || res.status >= 400)) {
+        const text = await res.text().catch(() => "");
+        throw new Error(
+          `Mobbin page request failed: ${res.status} ${res.statusText} - ${path}${text ? `: ${redactSensitiveText(text)}` : ""}`,
+        );
+      }
+
+      return res;
+    } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") {
+        throw new Error(`Mobbin page request timed out after ${API_FETCH_TIMEOUT_MS}ms: ${path}`, {
           cause: error,
         });
       }
@@ -315,6 +352,77 @@ export class MobbinApiClient {
   }
 
   /**
+   * Fetch copyable site sections from Mobbin's sites experience.
+   * Mobbin renders these through the Next.js site detail page rather than a JSON API endpoint.
+   */
+  async getSiteSections(params: {
+    siteId?: string;
+    query?: string;
+    siteName?: string;
+    pageSize?: number;
+    pageIndex?: number;
+  }): Promise<SiteSectionResult[]> {
+    const site = await this.resolveSearchableSite(params);
+    const siteVersionId = await this.resolveLatestSiteVersionId(site);
+    const slug = slugifySiteName(site.name);
+    const sectionsPath = `/sites/${slug}-${site.id}/${siteVersionId}/sections`;
+
+    return this.getOrSetCache(
+      `site-sections:${site.id}:${siteVersionId}:${params.pageSize ?? DEFAULT_PAGE_SIZE}:${params.pageIndex ?? DEFAULT_PAGE_INDEX}`,
+      60 * 1000,
+      async () => {
+        const res = await this.requestText(sectionsPath);
+        const html = await res.text();
+        const sections = parseSiteSectionsFromHtml(html, site, siteVersionId);
+        const pageSize = params.pageSize ?? DEFAULT_PAGE_SIZE;
+        const pageIndex = params.pageIndex ?? DEFAULT_PAGE_INDEX;
+        const start = pageIndex * pageSize;
+        return sections.slice(start, start + pageSize);
+      },
+    );
+  }
+
+  private async resolveSearchableSite(params: {
+    siteId?: string;
+    query?: string;
+    siteName?: string;
+  }): Promise<SearchableSite> {
+    const sites = await this.getSearchableSites();
+    if (params.siteId) {
+      const site = sites.find((candidate) => candidate.id === params.siteId);
+      if (site) return site;
+      if (params.siteName) {
+        return {
+          id: params.siteId,
+          name: params.siteName,
+          logo_url: "",
+          tagline: "",
+          keywords: [],
+        };
+      }
+      throw new Error(`No Mobbin site found for site_id '${params.siteId}'. Provide site_name as a fallback.`);
+    }
+
+    const matches = await this.searchSites({ query: params.query, pageSize: 1, pageIndex: 0 });
+    const site = matches[0];
+    if (!site) {
+      throw new Error(`No Mobbin site found for query '${params.query ?? ""}'.`);
+    }
+    return site;
+  }
+
+  private async resolveLatestSiteVersionId(site: SearchableSite): Promise<string> {
+    const slug = slugifySiteName(site.name);
+    const res = await this.requestText(`/sites/${slug}-${site.id}`, { redirect: "manual" });
+    const location = res.headers.get("location") ?? res.url;
+    const match = location.match(/\/sites\/[^/]+\/([0-9a-f-]{36})\/(?:preview|sections)/i);
+    if (!match) {
+      throw new Error(`Unable to resolve latest Mobbin site version for '${site.name}' (${site.id}).`);
+    }
+    return match[1];
+  }
+
+  /**
    * Get popular apps grouped by category with preview screenshots.
    * Endpoint: `POST /api/popular-apps/fetch-popular-apps-with-preview-screens`
    */
@@ -511,4 +619,125 @@ function rankSiteMatch(site: SearchableSite, query: string): number {
   if (tagline.includes(query)) return 4;
   if (keywords.some((keyword) => keyword.includes(query))) return 5;
   return Number.POSITIVE_INFINITY;
+}
+
+function slugifySiteName(name: string): string {
+  return name
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function parseSiteSectionsFromHtml(
+  html: string,
+  site: SearchableSite,
+  siteVersionId: string,
+): SiteSectionResult[] {
+  const match = html.match(/\\"sections\\":(\[.*?\]),\\"paywalled\\":/s);
+  if (!match) return [];
+
+  const decodedSectionsJson = JSON.parse(`"${match[1]}"`) as string;
+  const normalizedSectionsJson = decodedSectionsJson.replace(/"\$undefined"/g, "null");
+  const rawSections = JSON.parse(normalizedSectionsJson) as RawSiteSection[];
+
+  return rawSections
+    .map((section) => ({
+      id: section.id,
+      siteId: site.id,
+      siteVersionId,
+      siteName: site.name,
+      pageUrl: section.page_url,
+      type: section.type,
+      pageImageUrl: section.page_image_url,
+      sectionImageUrl: buildSiteSectionImageUrl(section),
+      pageVideoUrl: section.page_video_url,
+      videoTimestampStartMs: section.video_timestamp_start_ms,
+      videoTimestampEndMs: section.video_timestamp_end_ms,
+      imagePositionYStart: section.image_position_y_start,
+      imagePositionYEnd: section.image_position_y_end,
+      displayOrder: section.display_order,
+      patterns: section.patterns ?? [],
+      popularityMetric: section.popularity_metric,
+      trendingMetric: section.trending_metric,
+      metadata: section.metadata
+        ? {
+            width: section.metadata.width,
+            height: section.metadata.height,
+          }
+        : undefined,
+      textPreview: buildSectionTextPreview(section.metadata?.boundingBoxes),
+    }))
+    .sort((a, b) => a.displayOrder - b.displayOrder);
+}
+
+function buildSiteSectionImageUrl(section: RawSiteSection): string {
+  const baseUrl = toBytescaleImageUrl(section.page_image_url);
+  const cropHeight =
+    typeof section.image_position_y_start === "number" && typeof section.image_position_y_end === "number"
+      ? Math.max(section.image_position_y_end - section.image_position_y_start, 1)
+      : section.metadata?.height;
+
+  const params = new URLSearchParams({
+    f: "webp",
+    q: "85",
+    fit: "shrink-cover",
+    f2: "jpg",
+    w: "1920",
+  });
+
+  if (typeof section.image_position_y_start === "number" && cropHeight) {
+    params.set("crop-x", "0");
+    params.set("crop-w", "3840");
+    params.set("crop-y", String(section.image_position_y_start));
+    params.set("crop-h", String(cropHeight));
+  }
+
+  return `${baseUrl}?${params.toString()}`;
+}
+
+function toBytescaleImageUrl(imageUrl: string): string {
+  const parsed = new URL(imageUrl);
+  if (parsed.hostname === "bytescale.mobbin.com") {
+    return `${parsed.origin}${parsed.pathname}`;
+  }
+
+  if (!parsed.pathname.startsWith(SUPABASE_STORAGE_PREFIX)) {
+    return imageUrl;
+  }
+
+  const storagePath = parsed.pathname.slice(SUPABASE_STORAGE_PREFIX.length);
+  return `${BYTESCALE_CDN_BASE}/${storagePath}`;
+}
+
+function buildSectionTextPreview(boundingBoxes?: Array<{ text?: string }>): string | undefined {
+  if (!boundingBoxes || boundingBoxes.length === 0) return undefined;
+  return boundingBoxes
+    .map((box) => box.text)
+    .filter((text): text is string => Boolean(text))
+    .join(" ")
+    .replace(/\s+([,.!?;:])/g, "$1")
+    .slice(0, 500);
+}
+
+interface RawSiteSection {
+  id: string;
+  page_url: string;
+  type: string;
+  page_image_url: string;
+  page_video_url?: string;
+  video_timestamp_start_ms?: number;
+  video_timestamp_end_ms?: number;
+  image_position_y_start?: number;
+  image_position_y_end?: number;
+  popularity_metric: number;
+  trending_metric: number;
+  display_order: number;
+  metadata?: {
+    width?: number;
+    height?: number;
+    boundingBoxes?: Array<{ text?: string }>;
+  } | null;
+  patterns?: string[];
 }

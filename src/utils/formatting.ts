@@ -1,5 +1,12 @@
 import { CHARACTER_LIMIT } from "../constants.js";
-import type { AppResult, ScreenResult, FlowResult, Collection, SearchableSite } from "../types.js";
+import type {
+  AppResult,
+  ScreenResult,
+  FlowResult,
+  Collection,
+  SearchableSite,
+  SiteSectionResult,
+} from "../types.js";
 
 export function formatApps(apps: AppResult[]): string {
   if (apps.length === 0) return "No apps found.";
@@ -37,6 +44,39 @@ export function formatSites(sites: SearchableSite[]): string {
       `- **Site ID**: ${site.id}`,
       site.keywords.length > 0 ? `- **Keywords**: ${site.keywords.join(", ")}` : "",
       site.logo_url ? `- **Logo**: ${site.logo_url}` : "",
+    ]
+      .filter(Boolean)
+      .join("\n"),
+  );
+
+  return truncate(lines.join("\n\n"));
+}
+
+export function formatSiteSections(sections: SiteSectionResult[]): string {
+  if (sections.length === 0) return "No site sections found.";
+
+  const lines = sections.map((section, i) =>
+    [
+      `### ${i + 1}. ${section.siteName} — ${section.patterns.join(", ") || "Site section"}`,
+      `- **Section ID**: ${section.id}`,
+      `- **Site ID**: ${section.siteId}`,
+      `- **Version ID**: ${section.siteVersionId}`,
+      `- **Page URL**: ${section.pageUrl}`,
+      `- **Type**: ${section.type}`,
+      `- **Patterns**: ${section.patterns.join(", ") || "None"}`,
+      `- **Section image**: ${section.sectionImageUrl}`,
+      `- **Source page image**: ${section.pageImageUrl}`,
+      section.pageVideoUrl ? `- **Video**: ${section.pageVideoUrl}` : "",
+      typeof section.videoTimestampStartMs === "number" && typeof section.videoTimestampEndMs === "number"
+        ? `- **Video segment**: ${section.videoTimestampStartMs}ms-${section.videoTimestampEndMs}ms`
+        : "",
+      typeof section.imagePositionYStart === "number" && typeof section.imagePositionYEnd === "number"
+        ? `- **Image crop Y**: ${section.imagePositionYStart}-${section.imagePositionYEnd}`
+        : "",
+      section.metadata?.width && section.metadata?.height
+        ? `- **Dimensions**: ${section.metadata.width}x${section.metadata.height}`
+        : "",
+      section.textPreview ? `- **Text preview**: ${section.textPreview}` : "",
     ]
       .filter(Boolean)
       .join("\n"),

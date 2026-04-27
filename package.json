@@ -1,10 +1,11 @@
 {
   "name": "@aos-engineer/mobbin-mcp",
-  "version": "1.0.12",
+  "version": "1.0.13",
   "description": "MCP server for searching and browsing Mobbin design inspiration",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
+    "mobin-mcp": "dist/index.js",
     "mobbin-mcp": "dist/index.js"
   },
   "files": [

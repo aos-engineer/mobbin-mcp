@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { readFileSync } from "node:fs";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
@@ -79,6 +80,29 @@ const exportFormatSchema = z.enum([
 ]);
 const promptModeSchema = z.enum(["implementation", "analysis", "onboarding"]);
 const sharedSyncDirectionSchema = z.enum(["push", "pull", "merge"]);
+const packageJson = JSON.parse(
+  readFileSync(new URL("../package.json", import.meta.url), "utf8"),
+) as { version: string };
+const packageVersion = packageJson.version;
+
+function printHelp(): void {
+  console.log(`Mobbin MCP Server ${packageVersion}
+
+Usage:
+  mobbin-mcp                 Start the MCP stdio server
+  mobbin-mcp auth            Authenticate with Mobbin
+  mobbin-mcp --version       Print the installed version
+  mobbin-mcp --help          Show this help
+
+Aliases:
+  mobin-mcp                  Typo-tolerant alias for mobbin-mcp
+
+Environment:
+  MOBBIN_AUTH_COOKIE         Manual Mobbin auth cookie/session input
+  MOBBIN_AUTH_FILE           Override the auth session file path
+  MOBBIN_BASE_URL            Override the Mobbin base URL
+`);
+}
 
 const artifactStepSchema = z.object({
   order: z.number().min(0).optional().describe("0-indexed step order"),
@@ -181,6 +205,16 @@ function buildCatalogText(catalog: ReturnType<typeof buildArtifactCatalog>["cata
 }
 
 async function main() {
+  if (process.argv.includes("--help") || process.argv.includes("-h")) {
+    printHelp();
+    return;
+  }
+
+  if (process.argv.includes("--version") || process.argv.includes("-v")) {
+    console.log(packageVersion);
+    return;
+  }
+
   if (process.argv[2] === "auth") {
     const { runAuthFlow } = await import("./cli/auth.js");
     await runAuthFlow();
@@ -213,7 +247,7 @@ async function main() {
   const client = new MobbinApiClient(auth);
   const server = new McpServer({
     name: "mobbin",
-    version: "1.0.0",
+    version: packageVersion,
     description:
       "Search Mobbin, capture reference artifacts, and generate prompt-ready context for implementation and analysis workflows.",
   });

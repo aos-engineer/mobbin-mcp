@@ -92,6 +92,8 @@ function printHelp(): void {
 Usage:
   mobbin-mcp                 Start the MCP stdio server
   mobbin-mcp auth            Authenticate with Mobbin
+  mobbin-mcp skill           Run a focused skill action without MCP
+  mobbin-mcp skills          Install/status/uninstall global skill symlinks
   mobbin-mcp --version       Print the installed version
   mobbin-mcp --help          Show this help
 
@@ -219,6 +221,18 @@ async function main() {
   if (process.argv[2] === "auth") {
     const { runAuthFlow } = await import("./cli/auth.js");
     await runAuthFlow();
+    return;
+  }
+
+  if (process.argv[2] === "skill") {
+    const { runSkillCommand } = await import("./cli/skill.js");
+    await runSkillCommand();
+    return;
+  }
+
+  if (process.argv[2] === "skills") {
+    const { runSkillsCommand } = await import("./cli/skills.js");
+    await runSkillsCommand();
     return;
   }
 

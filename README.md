@@ -1,11 +1,43 @@
-# Mobbin MCP Server
+# Mobbin Skills And MCP
 
-A local-first MCP server for [Mobbin](https://mobbin.com) that now does two jobs:
+A local-first Mobbin integration for [Mobbin](https://mobbin.com) that now does two jobs:
 
 1. Search Mobbin's reverse-engineered internal API for apps, screens, flows, filters, collections, and screenshots.
 2. Turn Mobbin references and mobbing-session notes into a project-aware capture and reference system that agents can search, export, and reuse.
 
 Mobbin has no public API. This server was built by reverse-engineering their internal endpoints.
+
+## Skills Mode
+
+This repo now also ships focused agent skills so agents can use Mobbin workflows without loading the full MCP surface into context.
+
+Source skills live in `source/skills/`:
+
+- `mobbin-search`
+- `mobbin-capture`
+- `mobbin-prompts`
+- `mobbin-visuals`
+
+Build skill artifacts with:
+
+```bash
+npm run build
+```
+
+The generated skill bundles are copied to `dist/skills/` plus provider folders for Codex, Claude Code, Gemini, OpenCode, Pi, Cursor, Rovo Dev, Qoder, Trae, Roo Code, GitHub Copilot, and related agents.
+
+After installing the package globally, link the skills into all supported global CLI/IDE skill folders:
+
+```bash
+npm install -g @aos-engineer/mobbin-mcp
+mobbin-mcp skills install
+```
+
+For most users this replaces MCP setup. The skills do not connect to the MCP server; they call the same package through `mobbin-mcp skill ...`, which reuses the same Mobbin auth, API client, local artifact store, prompt builders, and visual utilities behind the MCP tools. If you already added the Mobbin MCP server to Claude Code, Codex, or another CLI, you can remove that MCP entry after confirming the four Mobbin skills appear in the tool's skills list.
+
+See [docs/SKILLS.md](docs/SKILLS.md) for provider targets and release details.
+
+The skill release covers the MCP tools, resources, and prompts through four focused skills. The full mapping is documented in [docs/SKILLS.md](docs/SKILLS.md#mcp-coverage).
 
 ## What It Does Now
 
@@ -20,7 +52,7 @@ Mobbin has no public API. This server was built by reverse-engineering their int
 - seed the local store from Mobbin collection metadata
 - optionally sync the local project store with a filesystem-backed shared store
 - generate prompt-ready implementation, analysis, onboarding, and agent-specific context packs
-- support Claude Code, Codex, Pi-style conversational agents, and Mem Palace export workflows through the same MCP surface
+- support Claude Code, Codex, Pi-style conversational agents, and Mem Palace export workflows through skills or MCP
 
 ## What Changed From The Original Fork
 
@@ -118,11 +150,12 @@ Published package:
 @aos-engineer/mobbin-mcp
 ```
 
-Recommended install path:
+Recommended skills-first install path:
 
 ```bash
 npm install -g @aos-engineer/mobbin-mcp
 mobbin-mcp auth
+mobbin-mcp skills install
 ```
 
 Contributor and fallback paths:
@@ -218,7 +251,20 @@ sb-ujasntkfphywizsdaapi-auth-token.0=<value0>; sb-ujasntkfphywizsdaapi-auth-toke
 | `MOBBIN_SUPABASE_PUBLISHABLE_KEY` | Override the Mobbin Supabase publishable key |
 | `MOBBIN_SUPABASE_COOKIE_PREFIX` | Override the Supabase auth cookie prefix |
 
-### 2. Add to Claude Code
+### 2. Install Skills Into Your CLI Or IDE
+
+Skills are the recommended setup for Claude Code, Codex, Gemini, OpenCode, Pi, Cursor, Rovo Dev, Qoder, Trae, Roo Code, GitHub Copilot, and related agents.
+
+```bash
+mobbin-mcp skills install
+mobbin-mcp skills status
+```
+
+This creates global symlinks to the package's built skills. Restart any running CLI or IDE after installation so it can discover them.
+
+You do not need to add the Mobbin MCP server when the skills are installed. Keep MCP only if you specifically want native MCP tools/resources/prompts or MCP inline image responses.
+
+### Optional: Add MCP To Claude Code
 
 Recommended global install path:
 
@@ -260,7 +306,7 @@ GitHub fallback:
 claude mcp add mobbin -e MOBBIN_AUTH_COOKIE="sb-ujasntkfphywizsdaapi-auth-token.0=...; sb-ujasntkfphywizsdaapi-auth-token.1=..." -- npx -y github:aos-engineer/mobbin-mcp
 ```
 
-### 3. Add to Codex
+### Optional: Add MCP To Codex
 
 If your Codex runtime is configured to use stdio MCP servers, prefer the installed binary:
 
@@ -300,7 +346,7 @@ For a local checkout, use:
 }
 ```
 
-### Alternative: Claude Desktop
+### Optional: Claude Desktop MCP
 
 Add to your Claude Desktop config (`~/Library/Application Support/Claude/claude_desktop_config.json`):
 
@@ -315,7 +361,7 @@ Add to your Claude Desktop config (`~/Library/Application Support/Claude/claude_
 }
 ```
 
-### Local MCP alternative
+### Optional: Local MCP Alternative
 
 If you prefer a pinned local checkout instead of `npx`, build once locally and point your MCP client directly at the compiled server:
 
@@ -350,11 +396,11 @@ If you prefer a pinned local checkout instead of `npx`, build once locally and p
 
 ## How it works
 
-Mobbin is a Next.js app backed by Supabase. This server calls Mobbin's internal API routes (`/api/content/search-apps`, `/api/content/search-screens`, etc.) using your session cookie for authentication. Tokens are automatically refreshed via Supabase's `/auth/v1/token` endpoint before they expire, and persisted back to `~/.mobbin-mcp/auth.json` when using the CLI auth method.
+Mobbin is a Next.js app backed by Supabase. The skills and MCP server call Mobbin's internal API routes (`/api/content/search-apps`, `/api/content/search-screens`, etc.) using your session cookie for authentication. Tokens are automatically refreshed via Supabase's `/auth/v1/token` endpoint before they expire, and persisted back to `~/.mobbin-mcp/auth.json` when using the CLI auth method.
 
-Screen images are served through Mobbin's Bytescale CDN. The `mobbin_get_screen_detail` tool automatically converts Supabase storage URLs from search results into CDN URLs, fetches the image, and returns it as base64 content that the model can see and analyze. Optional color extraction uses [sharp](https://sharp.pixelplumbing.com/) to return dominant hex colors from the screenshot.
+Screen images are served through Mobbin's Bytescale CDN. The MCP `mobbin_get_screen_detail` tool can return the fetched screenshot as an inline image content block. The skills path uses `mobbin-search` / `screen-detail`, which prints metadata and optional dominant colors in CLI output.
 
-Captured artifacts are stored locally in a project-aware index under `~/.mobbin-mcp/projects/<project-id>/artifacts.json`. The server auto-detects the active repository from git when possible, then falls back to the current working directory. This makes saved Mobbin references portable across MCP clients while still being scoped to the project you are working on.
+Captured artifacts are stored locally in a project-aware index under `~/.mobbin-mcp/projects/<project-id>/artifacts.json`. The CLI auto-detects the active repository from git when possible, then falls back to the current working directory. This makes saved Mobbin references portable across skills and MCP clients while still being scoped to the project you are working on.
 
 Repeated Mobbin reads are cached in-process for short periods to reduce redundant API traffic for common searches, autocomplete, filters, collections, and popular app lookups.
 

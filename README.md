@@ -1,11 +1,31 @@
 # Mobbin Skills And MCP
 
-A local-first Mobbin integration for [Mobbin](https://mobbin.com) that now does two jobs:
+A local-first Mobbin integration for [Mobbin](https://mobbin.com) that gives agents a durable design-reference workflow:
 
-1. Search Mobbin's reverse-engineered internal API for apps, screens, flows, filters, collections, and screenshots.
-2. Turn Mobbin references and mobbing-session notes into a project-aware capture and reference system that agents can search, export, and reuse.
+- Search Mobbin's reverse-engineered internal API for apps, screens, flows, site sections, filters, collections, and screenshots.
+- Capture Mobbin flows, screens, and site sections directly into a project-aware local reference store.
+- Reuse saved references through skills, MCP tools, prompts, contact sheets, visual similarity, PR reference packs, and memory exports.
 
 Mobbin has no public API. This server was built by reverse-engineering their internal endpoints.
+
+## Quick Start
+
+```bash
+npm install -g @aos-engineer/mobbin-mcp
+mobbin-mcp auth
+mobbin-mcp skills install
+mobbin-mcp skills status
+```
+
+For most agent workflows, the skills install is the recommended path. Native MCP setup is still available when a client needs MCP tools, resources, prompts, or inline image content.
+
+### Capture A Mobbin Flow In One Step
+
+```bash
+mobbin-mcp skill capture-flow '{"platform":"web","flow_actions":["Checkout"],"app_name":"Example","feature_area":"checkout","tags":["checkout"],"compute_visual_hashes":true}'
+```
+
+The generated artifact stores ordered steps, screen URLs, hotspot metadata, patterns, elements, source URLs, optional perceptual hashes, and project context. Use `capture-screen` for a single app screen and `capture-site-sections` for Mobbin's web-site section references.
 
 ## Skills Mode
 
@@ -17,6 +37,7 @@ Source skills live in `source/skills/`:
 - `mobbin-capture`
 - `mobbin-prompts`
 - `mobbin-visuals`
+- `mobbin-flow-architect` — study how a top app handles a flow on Mobbin and adapt it into this project as a flow spec, task plan, and (with sign-off) the build
 
 Build skill artifacts with:
 
@@ -33,18 +54,19 @@ npm install -g @aos-engineer/mobbin-mcp
 mobbin-mcp skills install
 ```
 
-For most users this replaces MCP setup. The skills do not connect to the MCP server; they call the same package through `mobbin-mcp skill ...`, which reuses the same Mobbin auth, API client, local artifact store, prompt builders, and visual utilities behind the MCP tools. If you already added the Mobbin MCP server to Claude Code, Codex, or another CLI, you can remove that MCP entry after confirming the four Mobbin skills appear in the tool's skills list.
+For most users this replaces MCP setup. The skills do not connect to the MCP server; they call the same package through `mobbin-mcp skill ...`, which reuses the same Mobbin auth, API client, local artifact store, prompt builders, and visual utilities behind the MCP tools. If you already added the Mobbin MCP server to Claude Code, Codex, or another CLI, you can remove that MCP entry after confirming the Mobbin skills appear in the tool's skills list.
 
 See [docs/SKILLS.md](docs/SKILLS.md) for provider targets and release details.
 
-The skill release covers the MCP tools, resources, and prompts through four focused skills. The full mapping is documented in [docs/SKILLS.md](docs/SKILLS.md#mcp-coverage).
+The skill release covers the MCP tools, resources, and prompts through four focused capability skills, plus `mobbin-flow-architect`, which orchestrates them into a reference → spec → plan → build pipeline. The full mapping is documented in [docs/SKILLS.md](docs/SKILLS.md#mcp-coverage).
 
 ## What It Does Now
 
 - search Mobbin apps, screens, flows, collections, and filters
 - fetch full screenshots and optional dominant colors
 - auto-detect the active repository from git, env vars, or cwd
-- capture design references, implementation notes, decisions, and flow steps into a local project store
+- capture flows, screens, site sections, design references, implementation notes, decisions, and flow steps into a local project store
+- preserve ordered flow steps, screen URLs, hotspot metadata, patterns, elements, source links, and optional visual hashes automatically
 - search, update, delete, catalog, import, and export captured artifacts
 - generate visual contact sheets from saved screens and flows
 - compute perceptual hashes and find visually similar captured artifacts
@@ -52,6 +74,7 @@ The skill release covers the MCP tools, resources, and prompts through four focu
 - seed the local store from Mobbin collection metadata
 - optionally sync the local project store with a filesystem-backed shared store
 - generate prompt-ready implementation, analysis, onboarding, and agent-specific context packs
+- adapt a reference app's flow from Mobbin into this project as a flow spec, task plan, and build
 - support Claude Code, Codex, Pi-style conversational agents, and Mem Palace export workflows through skills or MCP
 
 ## What Changed From The Original Fork
@@ -103,6 +126,9 @@ Removed limitations from the old shape:
 | `mobbin_doctor` | Inspect auth, project detection, artifact storage, and runtime health |
 | `mobbin_get_project_context` | Auto-detect the current repository / working directory and show capture state |
 | `mobbin_capture_artifact` | Save screens, flows, notes, decisions, and implementation references into a local project index |
+| `mobbin_capture_flow_from_search` | Search Mobbin flows and save the selected iOS, Android, or Web flow with ordered steps, hotspots, metadata, and optional visual hashes |
+| `mobbin_capture_screen_from_search` | Search Mobbin screens and save the selected screen with patterns, elements, source URLs, and optional visual hash |
+| `mobbin_capture_site_sections` | Fetch Mobbin site sections and save selected ordered Web sections with image URLs, page URLs, pattern metadata, and optional visual hashes |
 | `mobbin_get_captured_artifact` | Fetch a single captured artifact by ID |
 | `mobbin_update_captured_artifact` | Update metadata, notes, steps, and decisions on an existing artifact |
 | `mobbin_delete_captured_artifact` | Remove an artifact from the local project index |
@@ -260,6 +286,13 @@ mobbin-mcp skills install
 mobbin-mcp skills status
 ```
 
+Upgrade later with:
+
+```bash
+npm install -g @aos-engineer/mobbin-mcp@latest
+mobbin-mcp skills install --force
+```
+
 This creates global symlinks to the package's built skills. Restart any running CLI or IDE after installation so it can discover them.
 
 You do not need to add the Mobbin MCP server when the skills are installed. Keep MCP only if you specifically want native MCP tools/resources/prompts or MCP inline image responses.
@@ -385,6 +418,8 @@ If you prefer a pinned local checkout instead of `npx`, build once locally and p
 - "Search for screens with card-based layouts in travel apps, then show me the best one in detail"
 - "What UI patterns are trending right now on iOS? Show me the top screens"
 - "Save this onboarding flow as a captured artifact for our auth redesign and tag it `signup`, `ios`, and `trust-building`"
+- "Find the first Web checkout flow for a marketplace app and capture it with visual hashes for our cart redesign"
+- "Capture the pricing and hero sections from this Mobbin site reference as a Web design artifact"
 - "Generate a Codex-ready implementation prompt for the checkout feature using our saved `checkout` references"
 - "Export our saved growth-onboarding captures as Mem Palace JSONL"
 - "Give me an onboarding brief for the billing area using everything tagged `billing`"
@@ -417,7 +452,7 @@ Artifacts can include:
 
 1. Search Mobbin for relevant apps, screens, and flows.
 2. Inspect screenshots with `mobbin_get_screen_detail`.
-3. Save durable references with `mobbin_capture_artifact`.
+3. Save durable references with `mobbin_capture_flow_from_search`, `mobbin_capture_screen_from_search`, `mobbin_capture_site_sections`, or the lower-level `mobbin_capture_artifact`.
 4. Tag and organize them with feature area, journey, and decision notes.
 5. Review the saved corpus with `mobbin_search_captured_artifacts` and `mobbin_get_capture_catalog`.
 6. Generate contact sheets, PR reference packs, or feature review reports as needed.
@@ -449,7 +484,9 @@ Additional docs:
 
 - [Architecture](docs/ARCHITECTURE.md)
 - [Portability](docs/PORTABILITY.md)
+- [Skills](docs/SKILLS.md)
 - [Workflows](docs/WORKFLOWS.md)
+- [Release](docs/RELEASE.md)
 - [Implementation Ideas](docs/IMPLEMENTATION_IDEAS.md)
 
 ## Project structure
@@ -467,12 +504,15 @@ src/
   utils/
     auth-store.ts       # Persistent session storage (~/.mobbin-mcp/auth.json)
     artifact-store.ts   # Project-aware capture store, search, import/export, and prompt generation
+    capture-workflows.ts # Direct flow/screen/site-section capture orchestration
     formatting.ts       # Markdown formatters for tool responses
     project-context.ts  # Git / cwd auto-discovery for repository-aware capture
 docs/
   ARCHITECTURE.md       # Current architecture and MCP surface
   PORTABILITY.md        # Agent portability strategy
+  SKILLS.md             # Skills install, upgrade, and MCP coverage
   WORKFLOWS.md          # Recommended usage patterns
+  RELEASE.md            # Release checklist and npm publish process
   IMPLEMENTATION_IDEAS.md # Next expansion ideas
 test/
   *.test.js             # Node test coverage for capture store and project detection

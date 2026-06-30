@@ -18,7 +18,9 @@ This repository is now a local MCP server that does two jobs:
 - `src/utils/project-context.ts`
   Detects the active project from git, environment variables, or cwd.
 - `src/utils/artifact-store.ts`
-  Stores, searches, updates, deletes, imports, and exports captured artifacts.
+  Stores, searches, updates, deletes, imports, exports, and normalizes captured artifacts.
+- `src/utils/capture-workflows.ts`
+  Converts live Mobbin flow, screen, and site-section search results into complete project artifacts and handles optional visual hashing.
 - `src/utils/auth-store.ts`
   Handles machine-local auth storage and portable data-dir configuration.
 
@@ -40,6 +42,9 @@ This repository is now a local MCP server that does two jobs:
 - `mobbin_doctor`
 - `mobbin_get_project_context`
 - `mobbin_capture_artifact`
+- `mobbin_capture_flow_from_search`
+- `mobbin_capture_screen_from_search`
+- `mobbin_capture_site_sections`
 - `mobbin_get_captured_artifact`
 - `mobbin_update_captured_artifact`
 - `mobbin_delete_captured_artifact`
@@ -55,6 +60,8 @@ This repository is now a local MCP server that does two jobs:
 - `mobbin_sync_collections_to_artifacts`
 - `mobbin_generate_feature_review`
 - `mobbin_sync_shared_store`
+
+The direct capture tools are the preferred entrypoints for Mobbin-originated references because they preserve the data that is easy to lose when an agent manually copies search output: ordered flow steps, screen IDs, screen URLs, hotspot metadata, source URLs, patterns, elements, and optional perceptual hashes.
 
 ### Resources
 
@@ -94,6 +101,10 @@ Each artifact can include:
 - decisions with rationale/status
 - references to URLs or other artifacts
 - ordered steps with optional screen URLs and hotspot metadata
+- visual hashes for similarity search
+- collection links and source URLs
+
+Artifacts built from Mobbin search results are normalized into the same model as manual notes, so prompts, exports, contact sheets, and shared-store sync can treat all reference types consistently.
 
 ## Design Intent
 

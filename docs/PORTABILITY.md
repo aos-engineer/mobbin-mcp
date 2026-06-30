@@ -8,6 +8,17 @@ Anything that supports agent skills can use the focused Mobbin skill set without
 
 MCP remains available as an optional compatibility layer for clients that prefer native MCP tools/resources/prompts or need MCP inline image content.
 
+## Install And Upgrade
+
+```bash
+npm install -g @aos-engineer/mobbin-mcp@latest
+mobbin-mcp auth
+mobbin-mcp skills install --force
+mobbin-mcp skills status
+```
+
+`skills install --force` refreshes existing symlinks so every supported CLI points at the newly installed package version.
+
 ## Current Strategy
 
 ### Claude Code
@@ -49,8 +60,15 @@ Use MCP or wrappers only when needed for:
 
 1. Authenticate once with `npx -y @aos-engineer/mobbin-mcp auth`
 2. Install skills with `mobbin-mcp skills install`
-3. Capture references during mobbing sessions into the local project store
+3. Capture references during mobbing sessions into the local project store with `capture-flow`, `capture-screen`, `capture-site-sections`, or manual `capture`
 4. Generate agent-specific context on demand with `mobbin-prompts`
 5. Export JSON or memory JSONL when context needs to move outside the local store
 
 Optional MCP setup can coexist with skills, but it is no longer required for the standard workflow.
+
+## Data Portability
+
+- Auth is stored in `~/.mobbin-mcp/auth.json` unless overridden by `MOBBIN_AUTH_FILE`.
+- Project captures are stored under `~/.mobbin-mcp/projects/<project-id>/artifacts.json` unless overridden by `MOBBIN_DATA_DIR`.
+- Project identity is detected from git, `MOBBIN_PROJECT_ROOT`, `PROJECT_ROOT`, or the current directory.
+- `mobbin_sync_shared_store` can push, pull, or merge a project store through a shared filesystem path.

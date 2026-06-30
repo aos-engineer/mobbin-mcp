@@ -4,7 +4,7 @@ This repo ships Mobbin as focused agent skills instead of requiring the MCP serv
 
 Skills are the recommended setup. They do not connect to the MCP server or consume MCP context. Instead, each skill calls the installed package through `mobbin-mcp skill <action> '<json-payload>'`, reusing the same Mobbin auth, API client, project artifact store, prompt builders, and visual utilities that the MCP server uses internally.
 
-If the four Mobbin skills are installed and visible in your CLI or IDE, you can remove any Mobbin MCP server entry from that tool unless you still need native MCP tools/resources/prompts or MCP inline image responses.
+If the Mobbin skills are installed and visible in your CLI or IDE, you can remove any Mobbin MCP server entry from that tool unless you still need native MCP tools/resources/prompts or MCP inline image responses.
 
 ## Shape
 
@@ -14,6 +14,7 @@ Source skills live in `source/skills/`:
 - `mobbin-capture`: project-aware artifact capture, catalog, import, export, and shared-store sync
 - `mobbin-prompts`: implementation, analysis, onboarding, PR, feature-review, and agent context packs
 - `mobbin-visuals`: contact sheets, visual similarity, and collection seeding
+- `mobbin-flow-architect`: study a reference app's flow on Mobbin, evaluate the current project, and adapt that flow into a flow spec, task plan, and (with sign-off) the build
 
 Each skill has a small bundled script under `scripts/`. The scripts call:
 
@@ -70,6 +71,13 @@ mobbin-mcp skills install --force
 mobbin-mcp skills uninstall --provider=all
 ```
 
+Upgrade an existing install with:
+
+```bash
+npm install -g @aos-engineer/mobbin-mcp@latest
+mobbin-mcp skills install --force
+```
+
 ## Removing MCP
 
 After installing skills, MCP is optional. You can remove the Mobbin MCP server from Claude Code, Codex, or another client if your workflow is covered by:
@@ -106,9 +114,23 @@ npx -y @aos-engineer/mobbin-mcp auth
 
 Local capture and prompt actions that only read saved artifacts do not need live Mobbin API access.
 
+## Direct Capture Examples
+
+Use these actions when a Mobbin search result should become durable project context:
+
+```bash
+mobbin-mcp skill capture-flow '{"platform":"web","flow_actions":["Checkout"],"app_name":"Example","feature_area":"checkout","tags":["checkout"],"compute_visual_hashes":true}'
+mobbin-mcp skill capture-screen '{"platform":"ios","screen_patterns":["Login"],"feature_area":"auth","tags":["login"]}'
+mobbin-mcp skill capture-site-sections '{"query":"linear","max_sections":4,"feature_area":"marketing","tags":["landing-page"]}'
+```
+
+The direct capture actions create the same artifact shape as manual `capture`, while automatically preserving ordered steps, screen URLs, hotspot metadata, source URLs, patterns, elements, and optional visual hashes.
+
 ## MCP Coverage
 
 The skills are intended to cover the full MCP surface while loading only the focused instructions needed for a task.
+
+`mobbin-flow-architect` has no direct MCP tool equivalent. It orchestrates the capability skills below into a reference → spec → plan → build workflow for adapting a real app's flow into the current project.
 
 ### Tools
 
@@ -127,6 +149,9 @@ The skills are intended to cover the full MCP surface while loading only the foc
 | `mobbin_doctor` | `mobbin-capture` | `doctor` |
 | `mobbin_get_project_context` | `mobbin-capture` | `project-context` |
 | `mobbin_capture_artifact` | `mobbin-capture` | `capture` |
+| `mobbin_capture_flow_from_search` | `mobbin-capture` | `capture-flow` |
+| `mobbin_capture_screen_from_search` | `mobbin-capture` | `capture-screen` |
+| `mobbin_capture_site_sections` | `mobbin-capture` | `capture-site-sections` |
 | `mobbin_get_captured_artifact` | `mobbin-capture` | `get` |
 | `mobbin_update_captured_artifact` | `mobbin-capture` | `update` |
 | `mobbin_delete_captured_artifact` | `mobbin-capture` | `delete` |

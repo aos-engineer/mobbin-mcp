@@ -1,0 +1,23 @@
+{
+  "skill_name": "mobbin-flow-architect",
+  "evals": [
+    {
+      "id": 0,
+      "prompt": "Our React Native (Expo) habit-tracker app has a weak first-run experience — people install it and bounce before the first habit is created. Look at how Duolingo handles onboarding on Mobbin and adapt it into our app. I want a flow spec and a task plan I can hand to the team; pause before writing any code.",
+      "expected_output": "Locates and captures Duolingo's onboarding flow from Mobbin, decomposes it into a flow model, evaluates it against an RN/Expo habit-tracker, and produces a flow spec + task plan (written to a sensible location) that maps reference patterns to project components/tokens rather than copying brand. Stops at a checkpoint before coding.",
+      "files": []
+    },
+    {
+      "id": 1,
+      "prompt": "Our checkout in our Next.js + shadcn storefront feels clunky and we lose people at payment. Use Mobbin to find a checkout flow worth learning from, figure out what we're doing worse, and give me a concrete plan to fix it.",
+      "expected_output": "Treats this as goal-only: discovers 2-3 candidate reference checkout flows, recommends one, captures it, runs an intended-vs-current gap analysis, and produces a keep/drop/adapt/add mapping plus a flow spec + task plan tailored to Next.js + shadcn with design-token mapping.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "I'm building a meditation app and want the core 'start a session' loop to feel as smooth as Calm's. Study Calm on Mobbin and turn what makes it good into a spec we can build from on Flutter.",
+      "expected_output": "Captures Calm's session-start flow, decomposes the friction-reduction techniques and beats, separates transferable structure from incidental brand, and writes a Flutter-oriented flow spec (states map to navigation stack, motion/haptics noted) with acceptance criteria — without pasting Calm's colors or copy.",
+      "files": []
+    }
+  ]
+}

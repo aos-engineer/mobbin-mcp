@@ -3,3 +3,10 @@ dist/
 .env
 *.log
 .playwright-mcp/
+
+# Local AOS harness tooling artifacts (not part of this package)
+/.aos/
+/core/
+
+# Skill eval scratch output (timings, gradings, iteration runs)
+/mobbin-flow-architect-evals/

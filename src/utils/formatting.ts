@@ -67,10 +67,12 @@ export function formatSiteSections(sections: SiteSectionResult[]): string {
       `- **Section image**: ${section.sectionImageUrl}`,
       `- **Source page image**: ${section.pageImageUrl}`,
       section.pageVideoUrl ? `- **Video**: ${section.pageVideoUrl}` : "",
-      typeof section.videoTimestampStartMs === "number" && typeof section.videoTimestampEndMs === "number"
+      typeof section.videoTimestampStartMs === "number" &&
+      typeof section.videoTimestampEndMs === "number"
         ? `- **Video segment**: ${section.videoTimestampStartMs}ms-${section.videoTimestampEndMs}ms`
         : "",
-      typeof section.imagePositionYStart === "number" && typeof section.imagePositionYEnd === "number"
+      typeof section.imagePositionYStart === "number" &&
+      typeof section.imagePositionYEnd === "number"
         ? `- **Image crop Y**: ${section.imagePositionYStart}-${section.imagePositionYEnd}`
         : "",
       section.metadata?.width && section.metadata?.height

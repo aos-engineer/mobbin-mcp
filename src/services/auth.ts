@@ -51,7 +51,9 @@ export function inferCookiePrefixFromSupabaseUrl(supabaseUrl: string): string | 
 }
 
 export function extractNextStaticScriptUrls(html: string): string[] {
-  const matches = [...html.matchAll(/<script[^>]+src=["']([^"']*\/_next\/static\/chunks\/[^"']+\.js[^"']*)["']/g)];
+  const matches = [
+    ...html.matchAll(/<script[^>]+src=["']([^"']*\/_next\/static\/chunks\/[^"']+\.js[^"']*)["']/g),
+  ];
   const urls = matches.map((match) => match[1]);
   return Array.from(new Set(urls));
 }
@@ -203,7 +205,9 @@ export class MobbinAuth {
     const merged: MobbinRuntimeConfig = {
       ...runtimeConfig,
       ...Object.fromEntries(
-        Object.entries(nextConfig).filter(([, value]) => typeof value === "string" && value.trim().length > 0),
+        Object.entries(nextConfig).filter(
+          ([, value]) => typeof value === "string" && value.trim().length > 0,
+        ),
       ),
     };
 
@@ -220,8 +224,8 @@ export class MobbinAuth {
   private static hasExplicitSupabaseOverrides(): boolean {
     return Boolean(
       process.env.MOBBIN_SUPABASE_URL?.trim() ||
-        process.env.MOBBIN_SUPABASE_PUBLISHABLE_KEY?.trim() ||
-        process.env.MOBBIN_SUPABASE_COOKIE_PREFIX?.trim(),
+      process.env.MOBBIN_SUPABASE_PUBLISHABLE_KEY?.trim() ||
+      process.env.MOBBIN_SUPABASE_COOKIE_PREFIX?.trim(),
     );
   }
 
@@ -251,7 +255,9 @@ export class MobbinAuth {
     });
   }
 
-  private static async discoverRuntimeConfig(fetchImpl: typeof fetch = fetch): Promise<MobbinRuntimeConfig | null> {
+  private static async discoverRuntimeConfig(
+    fetchImpl: typeof fetch = fetch,
+  ): Promise<MobbinRuntimeConfig | null> {
     if (runtimeConfigDiscoveryPromise) {
       return runtimeConfigDiscoveryPromise;
     }
@@ -417,7 +423,9 @@ export class MobbinAuth {
 
       const chunkEntries = Object.entries(cookies)
         .map(([name, value]) => {
-          const match = name.match(new RegExp(`^${prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\.(\\d+)$`));
+          const match = name.match(
+            new RegExp(`^${prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\.(\\d+)$`),
+          );
           return match ? { index: Number.parseInt(match[1], 10), value } : null;
         })
         .filter((entry): entry is { index: number; value: string } => entry !== null)

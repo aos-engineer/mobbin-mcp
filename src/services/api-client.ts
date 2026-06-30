@@ -8,6 +8,7 @@ import {
   SUPABASE_STORAGE_PREFIX,
   DEFAULT_PAGE_SIZE,
   DEFAULT_PAGE_INDEX,
+  CROSS_APP_SCAN_LIMIT,
   COLOR_SAMPLE_SIZE,
   COLOR_QUANTIZE_STEP,
   COLOR_QUANTIZE_MAX,
@@ -19,6 +20,7 @@ import type {
   ScreenResult,
   FlowResult,
   Collection,
+  PreviewScreen,
   SearchableApp,
   SearchableSite,
   SiteSectionResult,
@@ -45,11 +47,7 @@ export class MobbinApiClient {
     this.auth = auth;
   }
 
-  private async getOrSetCache<T>(
-    key: string,
-    ttlMs: number,
-    loader: () => Promise<T>,
-  ): Promise<T> {
+  private async getOrSetCache<T>(key: string, ttlMs: number, loader: () => Promise<T>): Promise<T> {
     const cached = this.cache.get(key);
     if (cached && cached.expiresAt > Date.now()) {
       return cached.value as T;
@@ -157,7 +155,12 @@ export class MobbinApiClient {
 
   /**
    * Search and browse apps with category filtering and pagination.
-   * Endpoint: `POST /api/content/search-apps`
+   *
+   * Mobbin retired `POST /api/content/search-apps` (now 404). This is rebuilt on top of
+   * the still-live `/api/searchable-apps/{platform}` list, enriched with the primary
+   * category from the popular-apps endpoint. Per-app version IDs and popularity/trending
+   * metrics are no longer exposed by a browse endpoint, so those fields are best-effort
+   * (left empty / zero) — the cross-app screen and flow searches below carry the rich data.
    */
   async searchApps(params: {
     platform: string;
@@ -166,31 +169,40 @@ export class MobbinApiClient {
     pageIndex?: number;
     sortBy?: string;
   }): Promise<ContentSearchResponse<AppResult>> {
-    return this.getOrSetCache(
-      `search-apps:${JSON.stringify(params)}`,
-      60 * 1000,
-      () =>
-        this.request("/api/content/search-apps", {
-          method: "POST",
-          body: {
-            searchRequestId: "",
-            filterOptions: {
-              platform: params.platform,
-              appCategories: params.appCategories ?? null,
-            },
-            paginationOptions: {
-              pageSize: params.pageSize ?? DEFAULT_PAGE_SIZE,
-              pageIndex: params.pageIndex ?? DEFAULT_PAGE_INDEX,
-              sortBy: params.sortBy ?? "publishedAt",
-            },
-          },
-        }),
-    );
+    const pageSize = params.pageSize ?? DEFAULT_PAGE_SIZE;
+    const pageIndex = params.pageIndex ?? DEFAULT_PAGE_INDEX;
+    return this.getOrSetCache(`search-apps:${JSON.stringify(params)}`, 60 * 1000, async () => {
+      const [searchable, categoryMap] = await Promise.all([
+        this.getSearchableApps(params.platform),
+        this.getPopularCategoryMap(params.platform),
+      ]);
+
+      let apps = searchable;
+      if (params.appCategories && params.appCategories.length > 0) {
+        const wanted = new Set(params.appCategories.map((category) => category.toLowerCase()));
+        apps = apps.filter((app) => {
+          const category = categoryMap.map.get(app.id);
+          return category !== undefined && wanted.has(category.toLowerCase());
+        });
+      }
+
+      const start = pageIndex * pageSize;
+      const data = apps
+        .slice(start, start + pageSize)
+        .map((app) => searchableAppToResult(app, categoryMap.map.get(app.id)));
+      return { value: { searchRequestId: "", data } };
+    });
   }
 
   /**
-   * Search screens across all apps by patterns, elements, or OCR keywords.
-   * Endpoint: `POST /api/content/search-screens`
+   * Search screens across apps by patterns, elements, or OCR keywords.
+   *
+   * Mobbin retired `POST /api/content/search-screens` (now 404). Screens are now embedded
+   * in each app's RSC page (`/apps/<slug>-<platform>-<id>/<versionId>/screens`). Since there
+   * is no longer a server-side cross-app index, this scans a bounded set of apps
+   * ({@link CROSS_APP_SCAN_LIMIT}), parses their embedded screen data, and filters in code.
+   *
+   * Matching: OR within a facet, AND across facets. Pass `appName` to target a single app.
    */
   async searchScreens(params: {
     platform: string;
@@ -198,70 +210,271 @@ export class MobbinApiClient {
     screenElements?: string[];
     screenKeywords?: string[];
     appCategories?: string[];
+    appName?: string;
     hasAnimation?: boolean;
     pageSize?: number;
     pageIndex?: number;
     sortBy?: string;
   }): Promise<ContentSearchResponse<ScreenResult>> {
-    return this.getOrSetCache(
-      `search-screens:${JSON.stringify(params)}`,
-      60 * 1000,
-      () =>
-        this.request("/api/content/search-screens", {
-          method: "POST",
-          body: {
-            searchRequestId: "",
-            filterOptions: {
-              platform: params.platform,
-              screenPatterns: params.screenPatterns ?? null,
-              screenElements: params.screenElements ?? null,
-              screenKeywords: params.screenKeywords ?? null,
-              appCategories: params.appCategories ?? null,
-              hasAnimation: params.hasAnimation ?? null,
-            },
-            paginationOptions: {
-              pageSize: params.pageSize ?? DEFAULT_PAGE_SIZE,
-              pageIndex: params.pageIndex ?? DEFAULT_PAGE_INDEX,
-              sortBy: params.sortBy ?? "trending",
-            },
-          },
-        }),
-    );
+    const pageSize = params.pageSize ?? DEFAULT_PAGE_SIZE;
+    const pageIndex = params.pageIndex ?? DEFAULT_PAGE_INDEX;
+    return this.getOrSetCache(`search-screens:${JSON.stringify(params)}`, 60 * 1000, async () => {
+      const needed = (pageIndex + 1) * pageSize;
+      const candidates = await this.resolveCandidateApps(params.platform, {
+        categories: params.appCategories,
+        appName: params.appName,
+        limit: CROSS_APP_SCAN_LIMIT,
+      });
+
+      const matches: ScreenResult[] = [];
+      for (const app of candidates) {
+        if (matches.length >= needed) break;
+        let content: AppContent;
+        try {
+          content = await this.getAppContent(app);
+        } catch {
+          continue;
+        }
+        let screenNumber = 0;
+        for (const screen of content.content.screens) {
+          screenNumber += 1;
+          if (!screenMatchesFilters(screen, params)) continue;
+          matches.push(mapRscScreenToResult(screen, content.meta, screenNumber));
+        }
+      }
+
+      const start = pageIndex * pageSize;
+      return { value: { searchRequestId: "", data: matches.slice(start, start + pageSize) } };
+    });
   }
 
   /**
    * Search user flows/journeys by action type (e.g., "Creating Account").
-   * Endpoint: `POST /api/content/search-flows`
+   *
+   * Mobbin retired `POST /api/content/search-flows` (now 404). Flows are now embedded in each
+   * app's RSC page under `partialFlows`. As with {@link searchScreens}, this scans a bounded set
+   * of apps ({@link CROSS_APP_SCAN_LIMIT}), joins each flow's screen references with the app's
+   * screen lookup, filters by `flowActions` (OR within the facet), and orders by popularity.
+   * Pass `appName` to target a single app.
    */
   async searchFlows(params: {
     platform: string;
     flowActions?: string[];
     appCategories?: string[];
+    appName?: string;
     pageSize?: number;
     pageIndex?: number;
     sortBy?: string;
   }): Promise<ContentSearchResponse<FlowResult>> {
-    return this.getOrSetCache(
-      `search-flows:${JSON.stringify(params)}`,
-      60 * 1000,
-      () =>
-        this.request("/api/content/search-flows", {
-          method: "POST",
-          body: {
-            searchRequestId: "",
-            filterOptions: {
-              platform: params.platform,
-              flowActions: params.flowActions ?? null,
-              appCategories: params.appCategories ?? null,
-            },
-            paginationOptions: {
-              pageSize: params.pageSize ?? DEFAULT_PAGE_SIZE,
-              pageIndex: params.pageIndex ?? DEFAULT_PAGE_INDEX,
-              sortBy: params.sortBy ?? "trending",
-            },
-          },
-        }),
+    const pageSize = params.pageSize ?? DEFAULT_PAGE_SIZE;
+    const pageIndex = params.pageIndex ?? DEFAULT_PAGE_INDEX;
+    return this.getOrSetCache(`search-flows:${JSON.stringify(params)}`, 60 * 1000, async () => {
+      const needed = (pageIndex + 1) * pageSize;
+      const candidates = await this.resolveCandidateApps(params.platform, {
+        categories: params.appCategories,
+        appName: params.appName,
+        limit: CROSS_APP_SCAN_LIMIT,
+      });
+
+      const matches: FlowResult[] = [];
+      for (const app of candidates) {
+        if (matches.length >= needed) break;
+        let content: AppContent;
+        try {
+          content = await this.getAppContent(app);
+        } catch {
+          continue;
+        }
+        const screensById = new Map(content.content.screens.map((screen) => [screen.id, screen]));
+        const appFlows = content.content.flows
+          .filter((flow) => flowMatchesFilters(flow, params))
+          .sort((a, b) => (b.popularityMetric ?? 0) - (a.popularityMetric ?? 0));
+        for (const flow of appFlows) {
+          matches.push(mapRscFlowToResult(flow, screensById, content.meta));
+        }
+      }
+
+      const start = pageIndex * pageSize;
+      return { value: { searchRequestId: "", data: matches.slice(start, start + pageSize) } };
+    });
+  }
+
+  /**
+   * Resolve the latest published version ID for an app by following Mobbin's
+   * `/apps/<slug>-<platform>-<id>` 307 redirect. The slug segment may be any value
+   * (Mobbin ignores it), but it must be present.
+   */
+  private async resolveLatestAppVersionId(
+    platform: string,
+    appId: string,
+    slug: string,
+  ): Promise<string> {
+    const res = await this.requestText(`/apps/${slug}-${platform}-${appId}`, {
+      redirect: "manual",
+    });
+    const location = res.headers.get("location") ?? res.url;
+    const match = location.match(/\/apps\/[^/]+\/([0-9a-f-]{36})\/(?:screens|flows)/i);
+    if (!match) {
+      throw new Error(`Unable to resolve latest version for app '${appId}' (${platform}).`);
+    }
+    return match[1];
+  }
+
+  /**
+   * Fetch and parse an app's embedded RSC content (flows + screens).
+   * Both the `/screens` and `/flows` pages embed the same `partialFlows` + `screens` payload,
+   * so a single fetch of `/screens` yields everything. Cached per app for 10 minutes.
+   */
+  private async getAppContent(app: CandidateApp): Promise<AppContent> {
+    return this.getOrSetCache(`app-content:${app.platform}:${app.id}`, 10 * 60 * 1000, async () => {
+      const slug = slugifyName(app.name) || "app";
+      const versionId = await this.resolveLatestAppVersionId(app.platform, app.id, slug);
+      const res = await this.requestText(
+        `/apps/${slug}-${app.platform}-${app.id}/${versionId}/screens`,
+      );
+      const html = await res.text();
+      const content = parseAppRscContent(html);
+      const meta: AppContentMeta = {
+        appId: app.id,
+        appName: app.name,
+        appLogoUrl: app.logoUrl,
+        appTagline: app.tagline,
+        platform: app.platform,
+        appCategory: app.category,
+        appVersionId: versionId,
+      };
+      return { meta, content };
+    });
+  }
+
+  /**
+   * Build a bounded, ranked list of candidate apps to scan for cross-app screen/flow search.
+   * When `appName` is given, narrows to matching apps from the searchable-apps list.
+   * Otherwise uses popular apps (category-interleaved), optionally filtered by `categories`,
+   * and backfills from the full searchable-apps list when the popular set is too thin.
+   */
+  private async resolveCandidateApps(
+    platform: string,
+    opts: { categories?: string[]; appName?: string; limit: number },
+  ): Promise<CandidateApp[]> {
+    const [categoryIndex, searchable] = await Promise.all([
+      this.getPopularCategoryMap(platform),
+      this.getSearchableApps(platform),
+    ]);
+    const byId = new Map(searchable.map((app) => [app.id, app]));
+
+    const toCandidate = (
+      id: string,
+      name: string,
+      logoUrl: string,
+      category: string,
+    ): CandidateApp => {
+      const known = byId.get(id);
+      return {
+        id,
+        platform,
+        name: known?.appName ?? name,
+        logoUrl: known?.appLogoUrl ?? logoUrl ?? "",
+        tagline: known?.appTagline ?? "",
+        category: category || categoryIndex.map.get(id) || "",
+        keywords: known?.keywords ?? [],
+        previewScreens: known?.previewScreens ?? [],
+      };
+    };
+
+    if (opts.appName) {
+      const needle = opts.appName.trim().toLowerCase();
+      const matched = searchable
+        .filter(
+          (app) =>
+            app.appName.toLowerCase().includes(needle) ||
+            app.keywords.some((keyword) => keyword.toLowerCase().includes(needle)),
+        )
+        .sort((a, b) => rankNameMatch(a.appName, needle) - rankNameMatch(b.appName, needle));
+      return matched
+        .slice(0, opts.limit)
+        .map((app) => toCandidate(app.id, app.appName, app.appLogoUrl, ""));
+    }
+
+    let ordered = categoryIndex.ordered;
+    if (opts.categories && opts.categories.length > 0) {
+      const wanted = new Set(opts.categories.map((category) => category.toLowerCase()));
+      ordered = ordered.filter((app) => wanted.has(app.category.toLowerCase()));
+    }
+
+    const candidates = ordered.map((app) =>
+      toCandidate(app.id, app.name, app.logoUrl, app.category),
     );
+
+    if ((!opts.categories || opts.categories.length === 0) && candidates.length < opts.limit) {
+      const have = new Set(candidates.map((candidate) => candidate.id));
+      for (const app of searchable) {
+        if (have.has(app.id)) continue;
+        candidates.push(toCandidate(app.id, app.appName, app.appLogoUrl, ""));
+        if (candidates.length >= opts.limit) break;
+      }
+    }
+
+    return candidates.slice(0, opts.limit);
+  }
+
+  /**
+   * Fetch popular apps and index them by category. Returns both a flattened, deduped,
+   * category-interleaved ordering (used as the cross-app scan order) and an app-id → category map.
+   */
+  private async getPopularCategoryMap(
+    platform: string,
+  ): Promise<{ map: Map<string, string>; ordered: PopularOrderedApp[] }> {
+    return this.getOrSetCache(`popular-category-map:${platform}`, 10 * 60 * 1000, async () => {
+      const grouped = await this.fetchPopularAppsByCategory(platform, 10);
+      const map = new Map<string, string>();
+      const ordered: PopularOrderedApp[] = [];
+      for (const [category, apps] of Object.entries(grouped)) {
+        if (!Array.isArray(apps)) continue;
+        for (const app of apps) {
+          if (!app?.app_id || map.has(app.app_id)) continue;
+          map.set(app.app_id, category);
+          ordered.push({
+            id: app.app_id,
+            name: app.app_name ?? "",
+            logoUrl: app.app_logo_url ?? "",
+            category,
+          });
+        }
+      }
+      return { map, ordered };
+    });
+  }
+
+  /**
+   * Fetch the popular-apps payload, normalized to a `{ category: app[] }` shape.
+   * Mobbin changed `value` from an array to an object keyed by category; both forms are handled.
+   */
+  private async fetchPopularAppsByCategory(
+    platform: string,
+    limitPerCategory: number,
+  ): Promise<Record<string, RawPopularApp[]>> {
+    const res = await this.request<ValueResponse<unknown>>(
+      "/api/popular-apps/fetch-popular-apps-with-preview-screens",
+      { method: "POST", body: { platform, limitPerCategory } },
+    );
+    const value = res.value;
+
+    if (Array.isArray(value)) {
+      const grouped: Record<string, RawPopularApp[]> = {};
+      for (const app of value as RawPopularApp[]) {
+        if (!app?.app_id) continue;
+        const category = (app as { app_category?: string }).app_category ?? "uncategorized";
+        (grouped[category] ??= []).push(app);
+      }
+      return grouped;
+    }
+
+    if (value && typeof value === "object") {
+      return value as Record<string, RawPopularApp[]>;
+    }
+
+    return {};
   }
 
   /**
@@ -284,18 +497,15 @@ export class MobbinApiClient {
       ios?: Array<{ id: string; type: string }>;
     };
   }> {
-    return this.getOrSetCache(
-      `autocomplete:${JSON.stringify(params)}`,
-      30 * 1000,
-      () =>
-        this.request("/api/search-bar/search", {
-          method: "POST",
-          body: {
-            query: params.query,
-            experience: params.experience ?? "apps",
-            platform: params.platform ?? "ios",
-          },
-        }),
+    return this.getOrSetCache(`autocomplete:${JSON.stringify(params)}`, 30 * 1000, () =>
+      this.request("/api/search-bar/search", {
+        method: "POST",
+        body: {
+          query: params.query,
+          experience: params.experience ?? "apps",
+          platform: params.platform ?? "ios",
+        },
+      }),
     );
   }
 
@@ -400,7 +610,9 @@ export class MobbinApiClient {
           keywords: [],
         };
       }
-      throw new Error(`No Mobbin site found for site_id '${params.siteId}'. Provide site_name as a fallback.`);
+      throw new Error(
+        `No Mobbin site found for site_id '${params.siteId}'. Provide site_name as a fallback.`,
+      );
     }
 
     const matches = await this.searchSites({ query: params.query, pageSize: 1, pageIndex: 0 });
@@ -417,7 +629,9 @@ export class MobbinApiClient {
     const location = res.headers.get("location") ?? res.url;
     const match = location.match(/\/sites\/[^/]+\/([0-9a-f-]{36})\/(?:preview|sections)/i);
     if (!match) {
-      throw new Error(`Unable to resolve latest Mobbin site version for '${site.name}' (${site.id}).`);
+      throw new Error(
+        `Unable to resolve latest Mobbin site version for '${site.name}' (${site.id}).`,
+      );
     }
     return match[1];
   }
@@ -425,6 +639,11 @@ export class MobbinApiClient {
   /**
    * Get popular apps grouped by category with preview screenshots.
    * Endpoint: `POST /api/popular-apps/fetch-popular-apps-with-preview-screens`
+   *
+   * Mobbin changed the response `value` from a flat array to an object keyed by category.
+   * This flattens it back into the array shape callers expect (deduping apps across
+   * categories, first category wins), deriving `app_category` from the category key and a
+   * rank-based `popularity_metric` from the within-category ordering.
    */
   async getPopularApps(params: { platform: string; limitPerCategory?: number }): Promise<
     ValueResponse<
@@ -439,17 +658,42 @@ export class MobbinApiClient {
       }>
     >
   > {
+    const limitPerCategory = params.limitPerCategory ?? 10;
     return this.getOrSetCache(
-      `popular-apps:${params.platform}:${params.limitPerCategory ?? 10}`,
+      `popular-apps:${params.platform}:${limitPerCategory}`,
       10 * 60 * 1000,
-      () =>
-        this.request("/api/popular-apps/fetch-popular-apps-with-preview-screens", {
-          method: "POST",
-          body: {
-            platform: params.platform,
-            limitPerCategory: params.limitPerCategory ?? 10,
-          },
-        }),
+      async () => {
+        const grouped = await this.fetchPopularAppsByCategory(params.platform, limitPerCategory);
+        const seen = new Set<string>();
+        const data: Array<{
+          app_id: string;
+          app_name: string;
+          app_logo_url: string;
+          preview_screens: Array<{ id: string; screenUrl: string }>;
+          app_category: string;
+          secondary_app_categories: string[];
+          popularity_metric: number;
+        }> = [];
+
+        for (const [category, apps] of Object.entries(grouped)) {
+          if (!Array.isArray(apps)) continue;
+          apps.forEach((app, index) => {
+            if (!app?.app_id || seen.has(app.app_id)) return;
+            seen.add(app.app_id);
+            data.push({
+              app_id: app.app_id,
+              app_name: app.app_name ?? "",
+              app_logo_url: app.app_logo_url ?? "",
+              preview_screens: app.preview_screens ?? [],
+              app_category: category,
+              secondary_app_categories: [],
+              popularity_metric: Math.max(0, apps.length - index),
+            });
+          });
+        }
+
+        return { value: data };
+      },
     );
   }
 
@@ -621,13 +865,25 @@ function rankSiteMatch(site: SearchableSite, query: string): number {
   return Number.POSITIVE_INFINITY;
 }
 
-function slugifySiteName(name: string): string {
+function slugifyName(name: string): string {
   return name
     .toLowerCase()
     .normalize("NFKD")
     .replace(/[\u0300-\u036f]/g, "")
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
+}
+
+function slugifySiteName(name: string): string {
+  return slugifyName(name);
+}
+
+/** Rank an app-name match for sorting (lower is better): exact, prefix, then substring. */
+function rankNameMatch(name: string, needle: string): number {
+  const lowered = name.toLowerCase();
+  if (lowered === needle) return 0;
+  if (lowered.startsWith(needle)) return 1;
+  return 2;
 }
 
 function parseSiteSectionsFromHtml(
@@ -675,7 +931,8 @@ function parseSiteSectionsFromHtml(
 function buildSiteSectionImageUrl(section: RawSiteSection): string {
   const baseUrl = toBytescaleImageUrl(section.page_image_url);
   const cropHeight =
-    typeof section.image_position_y_start === "number" && typeof section.image_position_y_end === "number"
+    typeof section.image_position_y_start === "number" &&
+    typeof section.image_position_y_end === "number"
       ? Math.max(section.image_position_y_end - section.image_position_y_start, 1)
       : section.metadata?.height;
 
@@ -740,4 +997,374 @@ interface RawSiteSection {
     boundingBoxes?: Array<{ text?: string }>;
   } | null;
   patterns?: string[];
+}
+
+// ---------------------------------------------------------------------------
+// Cross-app RSC search (replacements for the retired /api/content/search-* routes)
+// ---------------------------------------------------------------------------
+
+/** A normalized app candidate used as input to the cross-app RSC scan. */
+interface CandidateApp {
+  id: string;
+  platform: string;
+  name: string;
+  logoUrl: string;
+  tagline: string;
+  category: string;
+  keywords: string[];
+  previewScreens: PreviewScreen[];
+}
+
+interface PopularOrderedApp {
+  id: string;
+  name: string;
+  logoUrl: string;
+  category: string;
+}
+
+interface RawPopularApp {
+  app_id: string;
+  app_name?: string;
+  app_logo_url?: string;
+  preview_screens?: Array<{ id: string; screenUrl: string }>;
+}
+
+/** App-level metadata captured while fetching an app's RSC page. */
+interface AppContentMeta {
+  appId: string;
+  appName: string;
+  appLogoUrl: string;
+  appTagline: string;
+  platform: string;
+  appCategory: string;
+  appVersionId: string;
+}
+
+interface AppContent {
+  meta: AppContentMeta;
+  content: ParsedAppContent;
+}
+
+interface ParsedAppContent {
+  flows: RawAppFlow[];
+  screens: RawAppScreen[];
+}
+
+/** A screen reference inside a flow (embedded `partialFlows[].screens[]`). */
+interface RawFlowScreenRef {
+  screenId: string;
+  order: number;
+  hotspotType: string | null;
+  hotspotX: number | null;
+  hotspotY: number | null;
+  hotspotWidth: number | null;
+  hotspotHeight: number | null;
+  videoTimestamp: number | null;
+}
+
+/** A flow as embedded in an app's RSC page under `partialFlows`. */
+interface RawAppFlow {
+  id: string;
+  name: string;
+  actions?: string[];
+  order: number;
+  popularityMetric?: number;
+  appVersionId?: string;
+  appVersionPublishedAt?: string;
+  screens: RawFlowScreenRef[];
+  restricted?: boolean;
+  videoCdnVideoSources?: unknown;
+}
+
+/** A screen as embedded in an app's RSC page under the `screens` lookup array. */
+interface RawAppScreen {
+  type?: string;
+  id: string;
+  screenUrl: string;
+  width?: number;
+  height?: number;
+  screenElements?: string[];
+  screenPatterns?: string[];
+  isAppKeyScreen?: boolean;
+  ocrBoundingBoxes?: Array<{ text?: string }>;
+  animation_id?: string | null;
+  appId?: string;
+  appName?: string;
+  appLogoUrl?: string;
+  platform?: string;
+  appVersionId?: string;
+  appVersionPublishedAt?: string;
+  restricted?: boolean;
+  screenCdnImgSources?: { src?: string } | null;
+  fullpageScreenCdnImgSources?: { src?: string } | null;
+}
+
+/**
+ * Reconstruct the full Next.js RSC stream from an HTML page.
+ *
+ * The payload is streamed across many `self.__next_f.push([1,"<chunk>"])` calls, where each
+ * `<chunk>` is a JSON string literal (quotes escaped as `\"`, etc.). Concatenating the decoded
+ * chunks reproduces the complete RSC stream — even when a single row is split across pushes.
+ */
+function decodeNextRscStream(html: string): string {
+  const marker = "self.__next_f.push([1,";
+  let out = "";
+  let from = 0;
+
+  while (true) {
+    const start = html.indexOf(marker, from);
+    if (start === -1) break;
+
+    let i = start + marker.length;
+    while (i < html.length && html[i] !== '"') i += 1;
+    if (html[i] !== '"') {
+      from = start + marker.length;
+      continue;
+    }
+
+    const literalStart = i;
+    i += 1;
+    let esc = false;
+    for (; i < html.length; i += 1) {
+      const c = html[i];
+      if (esc) {
+        esc = false;
+        continue;
+      }
+      if (c === "\\") {
+        esc = true;
+        continue;
+      }
+      if (c === '"') break;
+    }
+
+    const literal = html.slice(literalStart, i + 1);
+    try {
+      out += JSON.parse(literal) as string;
+    } catch {
+      // Skip malformed chunks; the rest of the stream is still usable.
+    }
+    from = i + 1;
+  }
+
+  return out;
+}
+
+/** Return the substring of a balanced `[...]` array starting at `openIdx` (a `[`). */
+function extractBalancedArray(stream: string, openIdx: number): string | null {
+  let depth = 0;
+  let inStr = false;
+  let esc = false;
+  for (let j = openIdx; j < stream.length; j += 1) {
+    const c = stream[j];
+    if (inStr) {
+      if (esc) esc = false;
+      else if (c === "\\") esc = true;
+      else if (c === '"') inStr = false;
+      continue;
+    }
+    if (c === '"') inStr = true;
+    else if (c === "[") depth += 1;
+    else if (c === "]") {
+      depth -= 1;
+      if (depth === 0) return stream.slice(openIdx, j + 1);
+    }
+  }
+  return null;
+}
+
+/** Locate `marker` in the stream and JSON.parse the balanced array that follows it. */
+function extractRscArray<T>(stream: string, marker: string): T[] | null {
+  const keyIdx = stream.indexOf(marker);
+  if (keyIdx === -1) return null;
+  const openIdx = stream.indexOf("[", keyIdx);
+  if (openIdx === -1) return null;
+  const arr = extractBalancedArray(stream, openIdx);
+  if (!arr) return null;
+  try {
+    return JSON.parse(arr.replace(/"\$undefined"/g, "null")) as T[];
+  } catch {
+    return null;
+  }
+}
+
+/** Parse an app detail RSC page into its embedded flows + screens. */
+function parseAppRscContent(html: string): ParsedAppContent {
+  const stream = decodeNextRscStream(html);
+  const flows = extractRscArray<RawAppFlow>(stream, '"partialFlows":') ?? [];
+  const screens = extractRscArray<RawAppScreen>(stream, '"screens":[{"type":"') ?? [];
+  return { flows, screens };
+}
+
+/** True if any tag in `have` matches (case-insensitive equality or substring) any `wanted` tag. */
+function anyTagMatches(have: string[] | undefined, wanted: string[]): boolean {
+  if (!have || have.length === 0) return false;
+  const lowered = have.map((tag) => tag.toLowerCase());
+  return wanted.some((want) => {
+    const lw = want.toLowerCase();
+    return lowered.some((tag) => tag === lw || tag.includes(lw));
+  });
+}
+
+function screenMatchesFilters(
+  screen: RawAppScreen,
+  params: {
+    screenPatterns?: string[];
+    screenElements?: string[];
+    screenKeywords?: string[];
+    hasAnimation?: boolean;
+  },
+): boolean {
+  if (params.hasAnimation === true && !screen.animation_id) return false;
+  if (params.hasAnimation === false && screen.animation_id) return false;
+  if (
+    params.screenPatterns &&
+    params.screenPatterns.length > 0 &&
+    !anyTagMatches(screen.screenPatterns, params.screenPatterns)
+  ) {
+    return false;
+  }
+  if (
+    params.screenElements &&
+    params.screenElements.length > 0 &&
+    !anyTagMatches(screen.screenElements, params.screenElements)
+  ) {
+    return false;
+  }
+  if (params.screenKeywords && params.screenKeywords.length > 0) {
+    const ocr = screenKeywordsFromOcr(screen.ocrBoundingBoxes).toLowerCase();
+    if (!params.screenKeywords.some((keyword) => ocr.includes(keyword.toLowerCase()))) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function flowMatchesFilters(flow: RawAppFlow, params: { flowActions?: string[] }): boolean {
+  if (params.flowActions && params.flowActions.length > 0) {
+    return anyTagMatches(flow.actions, params.flowActions);
+  }
+  return true;
+}
+
+/** Flatten an OCR bounding-box array into a single keyword string. */
+function screenKeywordsFromOcr(boxes?: Array<{ text?: string }>): string {
+  if (!boxes || boxes.length === 0) return "";
+  return boxes
+    .map((box) => box.text)
+    .filter((text): text is string => Boolean(text))
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** Best-effort extraction of a playable video URL from a CDN video-sources object. */
+function extractCdnVideoUrl(sources: unknown): string | null {
+  if (!sources || typeof sources !== "object") return null;
+  const value = sources as { src?: unknown; sources?: Array<{ src?: unknown; url?: unknown }> };
+  if (typeof value.src === "string") return value.src;
+  if (Array.isArray(value.sources)) {
+    for (const entry of value.sources) {
+      if (typeof entry?.src === "string") return entry.src;
+      if (typeof entry?.url === "string") return entry.url;
+    }
+  }
+  return null;
+}
+
+function mapRscScreenToResult(
+  screen: RawAppScreen,
+  meta: AppContentMeta,
+  screenNumber: number,
+): ScreenResult {
+  return {
+    type: screen.type ?? "curated",
+    id: screen.id,
+    screenUrl: screen.screenUrl,
+    fullpageScreenUrl: screen.fullpageScreenCdnImgSources?.src ?? null,
+    screenNumber,
+    screenPatterns: screen.screenPatterns ?? [],
+    screenElements: screen.screenElements ?? [],
+    screenKeywords: screenKeywordsFromOcr(screen.ocrBoundingBoxes),
+    appVersionId: screen.appVersionId ?? meta.appVersionId,
+    appId: screen.appId ?? meta.appId,
+    appName: screen.appName ?? meta.appName,
+    appCategory: meta.appCategory,
+    allAppCategories: meta.appCategory ? [meta.appCategory] : [],
+    appLogoUrl: screen.appLogoUrl ?? meta.appLogoUrl,
+    appTagline: meta.appTagline,
+    companyHqRegion: null,
+    companyStage: null,
+    platform: screen.platform ?? meta.platform,
+    popularityMetric: 0,
+    trendingMetric: 0,
+    metadata: { width: screen.width ?? 0, height: screen.height ?? 0 },
+    screenCdnImgSources: screen.screenCdnImgSources?.src
+      ? { src: screen.screenCdnImgSources.src }
+      : undefined,
+  };
+}
+
+function mapRscFlowToResult(
+  flow: RawAppFlow,
+  screensById: Map<string, RawAppScreen>,
+  meta: AppContentMeta,
+): FlowResult {
+  const screens = flow.screens
+    .slice()
+    .sort((a, b) => a.order - b.order)
+    .map((ref) => {
+      const screen = screensById.get(ref.screenId);
+      return {
+        id: ref.screenId,
+        order: ref.order,
+        hotspotType: ref.hotspotType ?? null,
+        hotspotX: ref.hotspotX ?? null,
+        hotspotY: ref.hotspotY ?? null,
+        hotspotWidth: ref.hotspotWidth ?? null,
+        hotspotHeight: ref.hotspotHeight ?? null,
+        videoTimestamp: ref.videoTimestamp ?? null,
+        screenUrl: screen?.screenUrl ?? "",
+        screenId: ref.screenId,
+        screenElements: screen?.screenElements ?? [],
+        screenPatterns: screen?.screenPatterns ?? [],
+        metadata: { width: screen?.width ?? 0, height: screen?.height ?? 0 },
+      };
+    });
+
+  return {
+    id: flow.id,
+    name: flow.name,
+    actions: flow.actions ?? [],
+    order: flow.order,
+    videoUrl: extractCdnVideoUrl(flow.videoCdnVideoSources),
+    screens,
+    appVersionId: flow.appVersionId ?? meta.appVersionId,
+    appId: meta.appId,
+    appName: meta.appName,
+    appCategory: meta.appCategory,
+    appLogoUrl: meta.appLogoUrl,
+    platform: meta.platform,
+  };
+}
+
+/** Build an {@link AppResult} from a searchable-apps record (best-effort fields where data is gone). */
+function searchableAppToResult(app: SearchableApp, category: string | undefined): AppResult {
+  return {
+    id: app.id,
+    appName: app.appName,
+    appCategory: category ?? "",
+    allAppCategories: category ? [category] : [],
+    appLogoUrl: app.appLogoUrl,
+    appTagline: app.appTagline,
+    platform: app.platform,
+    keywords: app.keywords ?? [],
+    appVersionId: "",
+    appVersionPublishedAt: "",
+    previewScreens: app.previewScreens ?? [],
+    previewVideoUrl: null,
+    popularityMetric: 0,
+    trendingMetric: 0,
+    isRestricted: false,
+  };
 }

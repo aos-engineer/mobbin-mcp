@@ -161,3 +161,146 @@ test("artifact CRUD, search, catalog, export, and import work end-to-end", () =>
   assert.equal(deletion.deleted, true);
   assert.ok(deletion.artifactCount >= 1);
 });
+
+test("Mobbin result builders preserve flow, screen, and site-section context", () => {
+  const flowArtifact = artifactStore.createArtifactFromFlow({
+    projectPath,
+    featureArea: "onboarding",
+    tags: ["reference"],
+    visualHashes: ["abc123"],
+    flow: {
+      id: "flow-1",
+      name: "Create account",
+      actions: ["Creating Account"],
+      order: 0,
+      videoUrl: "https://bytescale.mobbin.com/example/flow.mp4",
+      appVersionId: "app-version-1",
+      appId: "app-1",
+      appName: "Example Bank",
+      appCategory: "Finance",
+      appLogoUrl: "https://bytescale.mobbin.com/example/logo.png",
+      platform: "ios",
+      screens: [
+        {
+          id: "flow-screen-2",
+          order: 1,
+          hotspotType: "tap",
+          hotspotX: 0.5,
+          hotspotY: 0.8,
+          hotspotWidth: 0.2,
+          hotspotHeight: 0.1,
+          videoTimestamp: 1200,
+          screenUrl: "https://bytescale.mobbin.com/example/step-2.png",
+          screenId: "screen-2",
+          screenElements: ["Button"],
+          screenPatterns: ["Verification"],
+          metadata: { width: 390, height: 844 },
+        },
+        {
+          id: "flow-screen-1",
+          order: 0,
+          hotspotType: null,
+          hotspotX: null,
+          hotspotY: null,
+          hotspotWidth: null,
+          hotspotHeight: null,
+          videoTimestamp: 0,
+          screenUrl: "https://bytescale.mobbin.com/example/step-1.png",
+          screenId: "screen-1",
+          screenElements: ["Input", "Button"],
+          screenPatterns: ["Signup"],
+          metadata: { width: 390, height: 844 },
+        },
+      ],
+    },
+  });
+
+  assert.equal(flowArtifact.type, "flow");
+  assert.equal(flowArtifact.appName, "Example Bank");
+  assert.equal(flowArtifact.platform, "ios");
+  assert.equal(flowArtifact.featureArea, "onboarding");
+  assert.equal(flowArtifact.steps.length, 2);
+  assert.equal(flowArtifact.steps[0].screenId, "screen-1");
+  assert.equal(flowArtifact.steps[1].hotspot?.x, 0.5);
+  assert.deepEqual(flowArtifact.visualHashes, ["abc123"]);
+  assert.ok(flowArtifact.sourceUrls.includes("https://bytescale.mobbin.com/example/flow.mp4"));
+  assert.ok(flowArtifact.patterns.includes("signup"));
+  assert.ok(flowArtifact.elements.includes("button"));
+
+  const screenArtifact = artifactStore.createArtifactFromScreen({
+    projectPath,
+    screen: {
+      type: "curated",
+      id: "screen-3",
+      screenUrl: "https://bytescale.mobbin.com/example/screen.png",
+      fullpageScreenUrl: "https://bytescale.mobbin.com/example/screen-full.png",
+      screenNumber: 3,
+      screenPatterns: ["Checkout"],
+      screenElements: ["Card", "CTA"],
+      screenKeywords: "Pay now Order summary",
+      appVersionId: "app-version-2",
+      appId: "app-2",
+      appName: "Example Shop",
+      appCategory: "Shopping",
+      allAppCategories: ["Shopping"],
+      appLogoUrl: "https://bytescale.mobbin.com/example/shop-logo.png",
+      appTagline: "Shop faster",
+      companyHqRegion: null,
+      companyStage: null,
+      platform: "web",
+      popularityMetric: 10,
+      trendingMetric: 5,
+      metadata: { width: 1440, height: 1200 },
+    },
+  });
+
+  assert.equal(screenArtifact.type, "screen");
+  assert.equal(screenArtifact.screenUrl, "https://bytescale.mobbin.com/example/screen.png");
+  assert.equal(screenArtifact.steps[0].summary, "Pay now Order summary");
+  assert.ok(screenArtifact.sourceUrls.includes("https://bytescale.mobbin.com/example/screen-full.png"));
+
+  const siteArtifact = artifactStore.createArtifactFromSiteSections({
+    projectPath,
+    featureArea: "marketing",
+    sections: [
+      {
+        id: "section-2",
+        siteId: "site-1",
+        siteVersionId: "site-version-1",
+        siteName: "Example Site",
+        pageUrl: "https://example.com/pricing",
+        type: "pricing",
+        pageImageUrl: "https://bytescale.mobbin.com/example/page.png",
+        sectionImageUrl: "https://bytescale.mobbin.com/example/section-2.png",
+        displayOrder: 2,
+        patterns: ["Pricing"],
+        popularityMetric: 1,
+        trendingMetric: 1,
+        textPreview: "Plans for teams",
+      },
+      {
+        id: "section-1",
+        siteId: "site-1",
+        siteVersionId: "site-version-1",
+        siteName: "Example Site",
+        pageUrl: "https://example.com",
+        type: "hero",
+        pageImageUrl: "https://bytescale.mobbin.com/example/page.png",
+        sectionImageUrl: "https://bytescale.mobbin.com/example/section-1.png",
+        displayOrder: 1,
+        patterns: ["Hero"],
+        popularityMetric: 1,
+        trendingMetric: 1,
+        textPreview: "Ship better products",
+      },
+    ],
+  });
+
+  assert.equal(siteArtifact.type, "design");
+  assert.equal(siteArtifact.platform, "web");
+  assert.equal(siteArtifact.steps.length, 2);
+  assert.equal(siteArtifact.steps[0].screenId, "section-1");
+  assert.equal(siteArtifact.steps[1].screenId, "section-2");
+  assert.ok(siteArtifact.patterns.includes("hero"));
+  assert.ok(siteArtifact.sourceUrls.includes("https://bytescale.mobbin.com/example/section-2.png"));
+});

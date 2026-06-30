@@ -44,12 +44,17 @@ The script delegates to `mobbin-mcp skill <action> <json>` and accepts the same 
 1. Translate the user's request into the narrowest action.
 2. Keep `page_size` small, usually 5 to 10.
 3. Return the useful names, IDs, URLs, patterns, and elements.
-4. When a result should become durable project context, use the `mobbin-capture` skill to save it.
+4. When a result should become durable project context, use `mobbin-capture` direct capture actions:
+   - flows: `capture-flow`
+   - screens: `capture-screen`
+   - site sections: `capture-site-sections`
+   - notes or unsupported references: `capture`
 
 ## Examples
 
 ```bash
 node scripts/mobbin-search.mjs search-screens '{"platform":"ios","screen_patterns":["Checkout"],"page_size":5}'
+node scripts/mobbin-search.mjs search-flows '{"platform":"web","flow_actions":["Checkout"],"page_size":5}'
 node scripts/mobbin-search.mjs search-sites '{"query":"pricing","page_size":5}'
 node scripts/mobbin-search.mjs site-sections '{"query":"linear","page_size":5}'
 node scripts/mobbin-search.mjs screen-detail '{"screen_url":"https://...","extract_colors":true}'

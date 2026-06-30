@@ -84,7 +84,9 @@ function parseProviders(flags: string[]): Provider[] {
   }
 
   if (missing.length > 0) {
-    throw new Error(`Unknown provider(s): ${missing.join(", ")}. Known providers: ${PROVIDERS.map((provider) => provider.id).join(", ")}`);
+    throw new Error(
+      `Unknown provider(s): ${missing.join(", ")}. Known providers: ${PROVIDERS.map((provider) => provider.id).join(", ")}`,
+    );
   }
 
   return selected;
@@ -220,17 +222,26 @@ export async function runSkillsCommand(argv = process.argv.slice(2)): Promise<vo
   const force = flags.includes("--force");
 
   if (action === "install") {
-    printResults(action, providers.map((provider) => install(provider, skills, force)));
+    printResults(
+      action,
+      providers.map((provider) => install(provider, skills, force)),
+    );
     return;
   }
 
   if (action === "uninstall") {
-    printResults(action, providers.map((provider) => uninstall(provider, skills)));
+    printResults(
+      action,
+      providers.map((provider) => uninstall(provider, skills)),
+    );
     return;
   }
 
   if (action === "status") {
-    printResults(action, providers.map((provider) => status(provider, skills)));
+    printResults(
+      action,
+      providers.map((provider) => status(provider, skills)),
+    );
     return;
   }
 

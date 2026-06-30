@@ -4,6 +4,17 @@ export const SUPABASE_URL =
 export const DEFAULT_PAGE_SIZE = 24;
 export const DEFAULT_PAGE_INDEX = 0;
 export const MAX_PAGE_SIZE = 50;
+
+/**
+ * Maximum number of distinct apps whose RSC pages are fetched and parsed during a
+ * single cross-app screen/flow search. Mobbin removed its server-side cross-app
+ * search endpoints, so these searches now scan a bounded set of apps client-side.
+ * Raising this finds more matches at the cost of more (large) page downloads.
+ */
+export const CROSS_APP_SCAN_LIMIT = (() => {
+  const parsed = Number(process.env.MOBBIN_CROSS_APP_SCAN_LIMIT);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : 12;
+})();
 export const CHARACTER_LIMIT = 25000;
 export const API_FETCH_TIMEOUT_MS = 15_000;
 

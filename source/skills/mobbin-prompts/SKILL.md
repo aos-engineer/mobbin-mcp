@@ -20,6 +20,8 @@ node scripts/mobbin-prompts.mjs <action> '<json>'
 
 All actions can select artifacts with `artifact_ids`, `query`, `tags`, `type`, `app_name`, `feature_area`, `limit`, and `project_path`.
 
+Prefer selecting by `feature_area`, `tags`, or explicit `artifact_ids` when a prompt should stay tied to a specific captured flow. Direct Mobbin capture actions store flow steps, patterns, elements, source URLs, and visual hashes, so prompt output is strongest after `capture-flow`, `capture-screen`, or `capture-site-sections` has been used.
+
 ## Actions
 
 - `feature-prompt`: unified MCP-equivalent prompt generator; `mode` is `implementation`, `analysis`, or `onboarding`
@@ -35,6 +37,7 @@ All actions can select artifacts with `artifact_ids`, `query`, `tags`, `type`, `
 ```bash
 node scripts/mobbin-prompts.mjs feature-prompt '{"mode":"implementation","objective":"Build checkout confirmation","feature_area":"checkout","limit":6}'
 node scripts/mobbin-prompts.mjs implementation-prompt '{"objective":"Build checkout confirmation","feature_area":"checkout","limit":6}'
+node scripts/mobbin-prompts.mjs analysis-prompt '{"objective":"Compare shipped checkout against saved Mobbin references","feature_area":"checkout","type":"flow","limit":4}'
 node scripts/mobbin-prompts.mjs agent-context '{"target":"mem_palace","query":"onboarding","limit":10}'
 node scripts/mobbin-prompts.mjs pr-reference '{"title":"Checkout reference pack","objective":"Implement the confirmation step","tags":["checkout"]}'
 node scripts/mobbin-prompts.mjs feature-review '{"title":"Checkout review","intended_query":"checkout references","actual_query":"checkout shipped"}'

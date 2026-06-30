@@ -35,6 +35,11 @@ import {
 } from "../utils/formatting.js";
 import { syncSharedStore } from "../utils/shared-store.js";
 import {
+  captureFlowFromSearch,
+  captureScreenFromSearch,
+  captureSiteSections,
+} from "../utils/capture-workflows.js";
+import {
   buildContactSheet,
   collectArtifactVisualCandidates,
   computePerceptualHash,
@@ -78,6 +83,14 @@ function artifactType(value: unknown): CapturedArtifactType | undefined {
     value === "reference"
     ? value
     : undefined;
+}
+
+function platform(value: unknown): "ios" | "android" | "web" {
+  return value === "android" || value === "web" ? value : "ios";
+}
+
+function sortBy(value: unknown): "trending" | "publishedAt" {
+  return value === "publishedAt" ? value : "trending";
 }
 
 function recordArray(value: unknown): JsonRecord[] | undefined {
@@ -168,6 +181,24 @@ function selectArtifacts(params: JsonRecord): {
   return { project: index.project, artifacts };
 }
 
+function commonMobbinCaptureOptions(params: JsonRecord) {
+  return {
+    projectPath: str(params.project_path),
+    title: str(params.title),
+    summary: str(params.summary),
+    tags: strArray(params.tags),
+    notes: str(params.notes),
+    featureArea: str(params.feature_area),
+    journeyName: str(params.journey_name),
+    sessionName: str(params.session_name),
+    participants: strArray(params.participants),
+    implementationHints: strArray(params.implementation_hints),
+    sourceUrls: strArray(params.source_urls),
+    computeVisualHashes: bool(params.compute_visual_hashes) ?? true,
+    hashImageLimit: num(params.hash_image_limit) ?? 6,
+  };
+}
+
 function printJson(value: unknown): void {
   console.log(JSON.stringify(value, null, 2));
 }
@@ -175,7 +206,9 @@ function printJson(value: unknown): void {
 function formatCatalogText(catalog: ReturnType<typeof buildArtifactCatalog>["catalog"]): string {
   const bucket = (label: string, values: Record<string, number>): string[] => {
     const entries = Object.entries(values).sort((a, b) => b[1] - a[1]);
-    return entries.length > 0 ? [`## ${label}`, ...entries.map(([key, count]) => `- ${key}: ${count}`), ""] : [];
+    return entries.length > 0
+      ? [`## ${label}`, ...entries.map(([key, count]) => `- ${key}: ${count}`), ""]
+      : [];
   };
 
   return [
@@ -256,7 +289,9 @@ async function runSearchAction(action: string, params: JsonRecord): Promise<void
   }
 
   if (action === "search-sites") {
-    console.log(formatSites(await client.searchSites({ query: str(params.query), pageSize, pageIndex })));
+    console.log(
+      formatSites(await client.searchSites({ query: str(params.query), pageSize, pageIndex })),
+    );
     return;
   }
 
@@ -403,7 +438,8 @@ async function runCaptureAction(action: string, params: JsonRecord): Promise<voi
     const type = artifactType(params.type);
     const title = str(params.title);
     const summary = str(params.summary);
-    if (!type || !title || !summary) throw new Error("capture requires `type`, `title`, and `summary`.");
+    if (!type || !title || !summary)
+      throw new Error("capture requires `type`, `title`, and `summary`.");
     const artifact = createArtifact({
       projectPath: str(params.project_path),
       type,
@@ -434,11 +470,69 @@ async function runCaptureAction(action: string, params: JsonRecord): Promise<voi
     return;
   }
 
+  if (action === "capture-flow") {
+    const client = await createClient();
+    const result = await captureFlowFromSearch(client, {
+      ...commonMobbinCaptureOptions(params),
+      platform: platform(params.platform),
+      flowActions: strArray(params.flow_actions),
+      categories: strArray(params.categories),
+      appName: str(params.app_name),
+      flowName: str(params.flow_name),
+      flowId: str(params.flow_id),
+      resultIndex: num(params.result_index) ?? 0,
+      sortBy: sortBy(params.sort_by),
+      pageSize: num(params.page_size) ?? 10,
+      searchPages: num(params.search_pages) ?? 3,
+    });
+    console.log(formatArtifactList([result.artifact]));
+    return;
+  }
+
+  if (action === "capture-screen") {
+    const client = await createClient();
+    const result = await captureScreenFromSearch(client, {
+      ...commonMobbinCaptureOptions(params),
+      platform: platform(params.platform),
+      screenPatterns: strArray(params.screen_patterns),
+      screenElements: strArray(params.screen_elements),
+      screenKeywords: strArray(params.screen_keywords),
+      categories: strArray(params.categories),
+      hasAnimation: bool(params.has_animation),
+      appName: str(params.app_name),
+      screenId: str(params.screen_id),
+      resultIndex: num(params.result_index) ?? 0,
+      sortBy: sortBy(params.sort_by),
+      pageSize: num(params.page_size) ?? 10,
+      searchPages: num(params.search_pages) ?? 3,
+    });
+    console.log(formatArtifactList([result.artifact]));
+    return;
+  }
+
+  if (action === "capture-site-sections") {
+    const client = await createClient();
+    const result = await captureSiteSections(client, {
+      ...commonMobbinCaptureOptions(params),
+      siteId: str(params.site_id),
+      siteName: str(params.site_name),
+      query: str(params.query),
+      sectionIds: strArray(params.section_ids),
+      pageSize: num(params.page_size) ?? 10,
+      pageIndex: num(params.page_index) ?? 0,
+      maxSections: num(params.max_sections),
+    });
+    console.log(formatArtifactList([result.artifact]));
+    return;
+  }
+
   if (action === "get") {
     const id = str(params.artifact_id);
     if (!id) throw new Error("get requires `artifact_id`.");
     const result = getArtifactById(id, str(params.project_path));
-    console.log(result.artifact ? formatArtifactList([result.artifact]) : `Artifact not found: ${id}`);
+    console.log(
+      result.artifact ? formatArtifactList([result.artifact]) : `Artifact not found: ${id}`,
+    );
     return;
   }
 
@@ -470,12 +564,10 @@ async function runCaptureAction(action: string, params: JsonRecord): Promise<voi
     if (hasOwn(params, "related_artifact_ids")) {
       patch.relatedArtifactIds = strArray(params.related_artifact_ids);
     }
-    const result = updateArtifact(
-      id,
-      patch,
-      str(params.project_path),
+    const result = updateArtifact(id, patch, str(params.project_path));
+    console.log(
+      result.artifact ? formatArtifactList([result.artifact]) : `Artifact not found: ${id}`,
     );
-    console.log(result.artifact ? formatArtifactList([result.artifact]) : `Artifact not found: ${id}`);
     return;
   }
 
@@ -570,15 +662,21 @@ async function runPromptAction(action: string, params: JsonRecord): Promise<void
     if (mode === "analysis") {
       console.log(buildAnalysisPrompt({ objective, artifacts, projectName: project.projectName }));
     } else if (mode === "onboarding") {
-      console.log(buildOnboardingPrompt({ topic: objective, artifacts, projectName: project.projectName }));
+      console.log(
+        buildOnboardingPrompt({ topic: objective, artifacts, projectName: project.projectName }),
+      );
     } else {
-      console.log(buildImplementationPrompt({ objective, artifacts, projectName: project.projectName }));
+      console.log(
+        buildImplementationPrompt({ objective, artifacts, projectName: project.projectName }),
+      );
     }
     return;
   }
 
   if (action === "implementation-prompt") {
-    console.log(buildImplementationPrompt({ objective, artifacts, projectName: project.projectName }));
+    console.log(
+      buildImplementationPrompt({ objective, artifacts, projectName: project.projectName }),
+    );
     return;
   }
 
@@ -588,7 +686,9 @@ async function runPromptAction(action: string, params: JsonRecord): Promise<void
   }
 
   if (action === "onboarding-prompt") {
-    console.log(buildOnboardingPrompt({ topic: objective, artifacts, projectName: project.projectName }));
+    console.log(
+      buildOnboardingPrompt({ topic: objective, artifacts, projectName: project.projectName }),
+    );
     return;
   }
 
@@ -653,7 +753,9 @@ async function runVisualAction(action: string, params: JsonRecord): Promise<void
 
   if (action === "contact-sheet") {
     const { artifacts } = selectArtifacts(params);
-    const candidates = artifacts.flatMap((artifact) => collectArtifactVisualCandidates(artifact)).slice(0, 24);
+    const candidates = artifacts
+      .flatMap((artifact) => collectArtifactVisualCandidates(artifact))
+      .slice(0, 24);
     const items = [];
     for (const candidate of candidates) {
       try {
@@ -663,7 +765,8 @@ async function runVisualAction(action: string, params: JsonRecord): Promise<void
         // Keep building a partial contact sheet when one image fails.
       }
     }
-    if (items.length === 0) throw new Error("No fetchable screen images found in selected artifacts.");
+    if (items.length === 0)
+      throw new Error("No fetchable screen images found in selected artifacts.");
     const buffer = await buildContactSheet({ items, columns: num(params.columns) ?? 3 });
     const output = str(params.output_path) ?? "mobbin-contact-sheet.png";
     writeFileSync(output, buffer);
@@ -675,7 +778,7 @@ async function runVisualAction(action: string, params: JsonRecord): Promise<void
     const index = loadProjectArtifacts(projectPath);
     const artifactId = str(params.artifact_id);
     const screenUrl = str(params.screen_url);
-    let targetHashes: string[] = [];
+    let targetHashes: string[];
     if (artifactId) {
       const artifact = index.artifacts.find((item) => item.id === artifactId);
       if (!artifact) throw new Error(`Artifact not found: ${artifactId}`);
@@ -720,7 +823,9 @@ async function runVisualAction(action: string, params: JsonRecord): Promise<void
     const collections = ids?.length
       ? result.value.filter((collection) => ids.includes(collection.id))
       : result.value;
-    printJson(seedArtifactsFromCollections({ collections, projectPath, tags: strArray(params.tags) }));
+    printJson(
+      seedArtifactsFromCollections({ collections, projectPath, tags: strArray(params.tags) }),
+    );
     return;
   }
 
@@ -735,8 +840,9 @@ export async function runSkillCommand(argv = process.argv.slice(2)): Promise<voi
 Groups:
   Search: search-apps, search-screens, search-flows, search-sites, site-sections,
           quick-search, popular-apps, collections, filters, screen-detail
-  Capture: doctor, project-context, capture, get, update, delete, search, catalog,
-           captures, export, import, sync-shared-store
+  Capture: doctor, project-context, capture, capture-flow, capture-screen,
+           capture-site-sections, get, update, delete, search, catalog, captures,
+           export, import, sync-shared-store
   Prompts: feature-prompt, implementation-prompt, analysis-prompt, onboarding-prompt,
            agent-context, pr-reference, feature-review
   Visuals: contact-sheet, find-similar, sync-collections`);
@@ -761,6 +867,9 @@ Groups:
     "project-context",
     "captures",
     "capture",
+    "capture-flow",
+    "capture-screen",
+    "capture-site-sections",
     "get",
     "update",
     "delete",

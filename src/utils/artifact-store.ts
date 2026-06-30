@@ -16,8 +16,11 @@ import type {
   CapturedArtifactStep,
   CapturedArtifactType,
   Collection,
+  FlowResult,
   ProjectArtifactCatalog,
   ProjectArtifactIndex,
+  ScreenResult,
+  SiteSectionResult,
 } from "../types.js";
 
 const PROJECTS_DIR = path.join(DATA_DIR, "projects");
@@ -50,6 +53,27 @@ function normalizeList(values?: string[]): string[] {
         .map((value) => value.toLowerCase()),
     ),
   );
+}
+
+function readableList(values: string[]): string {
+  return values.length > 0 ? values.join(", ") : "none";
+}
+
+function uniqueSourceUrls(values: Array<string | null | undefined>): string[] {
+  return Array.from(new Set(values.filter((value): value is string => Boolean(value))));
+}
+
+function flowHotspot(
+  screen: FlowResult["screens"][number],
+): CapturedArtifactStep["hotspot"] | undefined {
+  const hotspot = {
+    x: screen.hotspotX ?? undefined,
+    y: screen.hotspotY ?? undefined,
+    width: screen.hotspotWidth ?? undefined,
+    height: screen.hotspotHeight ?? undefined,
+  };
+
+  return Object.values(hotspot).some((value) => typeof value === "number") ? hotspot : undefined;
 }
 
 function sortByOrder<T extends { order: number }>(items: T[]): T[] {
@@ -113,7 +137,9 @@ function normalizeReference(
   };
 }
 
-function normalizeCollectionLink(collection: Partial<ArtifactCollectionLink>): ArtifactCollectionLink | null {
+function normalizeCollectionLink(
+  collection: Partial<ArtifactCollectionLink>,
+): ArtifactCollectionLink | null {
   const collectionId = clampText(collection.collectionId);
   const name = clampText(collection.name);
   if (!collectionId || !name) return null;
@@ -181,14 +207,8 @@ function normalizeArtifact(input: Partial<CapturedArtifact>, projectId: string):
     sourceUrls,
     screenUrl: clampText(input.screenUrl),
     flowName: clampText(input.flowName),
-    patterns: normalizeList([
-      ...(input.patterns ?? []),
-      ...steps.flatMap((step) => step.patterns),
-    ]),
-    elements: normalizeList([
-      ...(input.elements ?? []),
-      ...steps.flatMap((step) => step.elements),
-    ]),
+    patterns: normalizeList([...(input.patterns ?? []), ...steps.flatMap((step) => step.patterns)]),
+    elements: normalizeList([...(input.elements ?? []), ...steps.flatMap((step) => step.elements)]),
     relatedArtifactIds: normalizeList(input.relatedArtifactIds),
     projectId,
     createdAt: clampText(input.createdAt) ?? new Date().toISOString(),
@@ -216,10 +236,15 @@ function scoreArtifact(artifact: CapturedArtifact, query?: string): number {
     artifact.decisions.map((decision) => `${decision.decision} ${decision.rationale}`).join(" "),
     artifact.references.map((reference) => `${reference.label} ${reference.note ?? ""}`).join(" "),
     artifact.steps
-      .map((step) => `${step.title ?? ""} ${step.summary ?? ""} ${step.patterns.join(" ")} ${step.elements.join(" ")}`)
+      .map(
+        (step) =>
+          `${step.title ?? ""} ${step.summary ?? ""} ${step.patterns.join(" ")} ${step.elements.join(" ")}`,
+      )
       .join(" "),
     artifact.sourceUrls.join(" "),
-    artifact.collections.map((collection) => `${collection.collectionId} ${collection.name}`).join(" "),
+    artifact.collections
+      .map((collection) => `${collection.collectionId} ${collection.name}`)
+      .join(" "),
     artifact.visualHashes.join(" "),
   ]
     .filter(Boolean)
@@ -376,7 +401,280 @@ export function createArtifact(input: {
   );
 }
 
-export function upsertArtifact(artifact: CapturedArtifact, projectPath?: string): ProjectArtifactIndex {
+export function createArtifactFromFlow(params: {
+  flow: FlowResult;
+  projectPath?: string;
+  title?: string;
+  summary?: string;
+  tags?: string[];
+  notes?: string;
+  featureArea?: string;
+  journeyName?: string;
+  sessionName?: string;
+  participants?: string[];
+  implementationHints?: string[];
+  sourceUrls?: string[];
+  visualHashes?: string[];
+}): CapturedArtifact {
+  const { flow } = params;
+  const orderedScreens = sortByOrder(flow.screens);
+  const patterns = normalizeList(orderedScreens.flatMap((screen) => screen.screenPatterns));
+  const elements = normalizeList(orderedScreens.flatMap((screen) => screen.screenElements));
+  const appPrefix = flow.appName ? `${flow.appName} ` : "";
+  const platformSuffix = flow.platform ? ` (${flow.platform})` : "";
+
+  return createArtifact({
+    projectPath: params.projectPath,
+    type: "flow",
+    source: "mobbin",
+    title: params.title ?? `${appPrefix}${flow.name} flow${platformSuffix}`,
+    summary:
+      params.summary ??
+      [
+        `Mobbin flow reference with ${orderedScreens.length} ordered steps.`,
+        flow.actions.length > 0 ? `Actions: ${readableList(flow.actions)}.` : "",
+        patterns.length > 0 ? `Patterns: ${readableList(patterns)}.` : "",
+      ]
+        .filter(Boolean)
+        .join(" "),
+    tags: [
+      "mobbin",
+      "flow",
+      ...(flow.platform ? [flow.platform] : []),
+      ...flow.actions,
+      ...(params.tags ?? []),
+    ],
+    notes:
+      params.notes ??
+      [
+        flow.videoUrl ? `Flow video: ${flow.videoUrl}` : "",
+        `Mobbin flow ID: ${flow.id}`,
+        flow.appVersionId ? `App version ID: ${flow.appVersionId}` : "",
+      ]
+        .filter(Boolean)
+        .join("\n"),
+    appName: flow.appName,
+    platform: flow.platform,
+    featureArea: params.featureArea,
+    journeyName: params.journeyName ?? flow.name,
+    sessionName: params.sessionName,
+    participants: params.participants,
+    implementationHints: params.implementationHints,
+    sourceUrls: uniqueSourceUrls([
+      ...(params.sourceUrls ?? []),
+      flow.videoUrl,
+      ...orderedScreens.map((screen) => screen.screenUrl),
+    ]),
+    screenUrl: orderedScreens[0]?.screenUrl,
+    flowName: flow.name,
+    patterns,
+    elements,
+    visualHashes: params.visualHashes,
+    references: [
+      ...(flow.videoUrl
+        ? [
+            {
+              label: "Mobbin flow video",
+              url: flow.videoUrl,
+              note: `Flow ID ${flow.id}`,
+            },
+          ]
+        : []),
+    ],
+    steps: orderedScreens.map((screen, index) => ({
+      order: typeof screen.order === "number" ? screen.order : index,
+      title: screen.screenPatterns.join(", ") || `Step ${index + 1}`,
+      summary: [
+        screen.hotspotType ? `Hotspot: ${screen.hotspotType}` : "",
+        typeof screen.videoTimestamp === "number"
+          ? `Video timestamp: ${screen.videoTimestamp}ms`
+          : "",
+      ]
+        .filter(Boolean)
+        .join(" | "),
+      screenId: screen.screenId || screen.id,
+      screenUrl: screen.screenUrl,
+      patterns: screen.screenPatterns,
+      elements: screen.screenElements,
+      hotspot: flowHotspot(screen),
+    })),
+  });
+}
+
+export function createArtifactFromScreen(params: {
+  screen: ScreenResult;
+  projectPath?: string;
+  title?: string;
+  summary?: string;
+  tags?: string[];
+  notes?: string;
+  featureArea?: string;
+  journeyName?: string;
+  sessionName?: string;
+  participants?: string[];
+  implementationHints?: string[];
+  sourceUrls?: string[];
+  visualHashes?: string[];
+}): CapturedArtifact {
+  const { screen } = params;
+  const patterns = normalizeList(screen.screenPatterns);
+  const elements = normalizeList(screen.screenElements);
+
+  return createArtifact({
+    projectPath: params.projectPath,
+    type: "screen",
+    source: "mobbin",
+    title:
+      params.title ??
+      `${screen.appName} ${screen.screenPatterns.join(", ") || "screen"} (${screen.platform})`,
+    summary:
+      params.summary ??
+      [
+        `Mobbin screen reference from ${screen.appName}.`,
+        patterns.length > 0 ? `Patterns: ${readableList(patterns)}.` : "",
+        elements.length > 0 ? `Elements: ${readableList(elements)}.` : "",
+      ]
+        .filter(Boolean)
+        .join(" "),
+    tags: ["mobbin", "screen", screen.platform, ...patterns, ...(params.tags ?? [])],
+    notes:
+      params.notes ??
+      [
+        `Mobbin screen ID: ${screen.id}`,
+        `App ID: ${screen.appId}`,
+        `App version ID: ${screen.appVersionId}`,
+        screen.metadata ? `Dimensions: ${screen.metadata.width}x${screen.metadata.height}` : "",
+      ]
+        .filter(Boolean)
+        .join("\n"),
+    appName: screen.appName,
+    platform: screen.platform,
+    featureArea: params.featureArea,
+    journeyName: params.journeyName,
+    sessionName: params.sessionName,
+    participants: params.participants,
+    implementationHints: params.implementationHints,
+    sourceUrls: uniqueSourceUrls([
+      ...(params.sourceUrls ?? []),
+      screen.screenUrl,
+      screen.fullpageScreenUrl,
+    ]),
+    screenUrl: screen.screenUrl,
+    patterns,
+    elements,
+    visualHashes: params.visualHashes,
+    steps: [
+      {
+        order: 0,
+        title: screen.screenPatterns.join(", ") || "Screen",
+        summary: screen.screenKeywords,
+        screenId: screen.id,
+        screenUrl: screen.screenUrl,
+        patterns: screen.screenPatterns,
+        elements: screen.screenElements,
+      },
+    ],
+  });
+}
+
+export function createArtifactFromSiteSections(params: {
+  sections: SiteSectionResult[];
+  projectPath?: string;
+  title?: string;
+  summary?: string;
+  tags?: string[];
+  notes?: string;
+  featureArea?: string;
+  journeyName?: string;
+  sessionName?: string;
+  participants?: string[];
+  implementationHints?: string[];
+  sourceUrls?: string[];
+  visualHashes?: string[];
+  type?: CapturedArtifactType;
+}): CapturedArtifact {
+  if (params.sections.length === 0) {
+    throw new Error("Cannot create a site-section artifact without at least one section.");
+  }
+
+  const sections = [...params.sections].sort((a, b) => a.displayOrder - b.displayOrder);
+  const first = sections[0];
+  const patterns = normalizeList(sections.flatMap((section) => section.patterns));
+  const sourceUrls = uniqueSourceUrls([
+    ...(params.sourceUrls ?? []),
+    ...sections.flatMap((section) => [
+      section.pageUrl,
+      section.sectionImageUrl,
+      section.pageImageUrl,
+      section.pageVideoUrl,
+    ]),
+  ]);
+
+  return createArtifact({
+    projectPath: params.projectPath,
+    type: params.type ?? "design",
+    source: "mobbin",
+    title: params.title ?? `${first.siteName} site sections`,
+    summary:
+      params.summary ??
+      [
+        `Mobbin site reference with ${sections.length} ordered sections.`,
+        patterns.length > 0 ? `Patterns: ${readableList(patterns)}.` : "",
+      ]
+        .filter(Boolean)
+        .join(" "),
+    tags: ["mobbin", "site", "web", ...patterns, ...(params.tags ?? [])],
+    notes:
+      params.notes ??
+      sections
+        .map((section) =>
+          [
+            `${section.displayOrder + 1}. ${section.patterns.join(", ") || section.type}`,
+            `Section ID: ${section.id}`,
+            typeof section.videoTimestampStartMs === "number" &&
+            typeof section.videoTimestampEndMs === "number"
+              ? `Video segment: ${section.videoTimestampStartMs}ms-${section.videoTimestampEndMs}ms`
+              : "",
+            section.textPreview ? `Text: ${section.textPreview}` : "",
+          ]
+            .filter(Boolean)
+            .join(" | "),
+        )
+        .join("\n"),
+    appName: first.siteName,
+    platform: "web",
+    featureArea: params.featureArea,
+    journeyName: params.journeyName,
+    sessionName: params.sessionName,
+    participants: params.participants,
+    implementationHints: params.implementationHints,
+    sourceUrls,
+    screenUrl: first.sectionImageUrl,
+    patterns,
+    visualHashes: params.visualHashes,
+    references: [
+      {
+        label: `${first.siteName} source page`,
+        url: first.pageUrl,
+        note: `Site ID ${first.siteId}; version ${first.siteVersionId}`,
+      },
+    ],
+    steps: sections.map((section, index) => ({
+      order: index,
+      title: section.patterns.join(", ") || section.type,
+      summary: section.textPreview,
+      screenId: section.id,
+      screenUrl: section.sectionImageUrl,
+      patterns: section.patterns,
+      elements: [],
+    })),
+  });
+}
+
+export function upsertArtifact(
+  artifact: CapturedArtifact,
+  projectPath?: string,
+): ProjectArtifactIndex {
   const index = loadProjectArtifacts(projectPath);
   const existingIndex = index.artifacts.findIndex((item) => item.id === artifact.id);
   const normalized = normalizeArtifact(
@@ -569,8 +867,12 @@ export function formatArtifactList(artifacts: CapturedArtifact[]): string {
         artifact.tags.length > 0 ? `- **Tags**: ${artifact.tags.join(", ")}` : "",
         artifact.patterns.length > 0 ? `- **Patterns**: ${artifact.patterns.join(", ")}` : "",
         artifact.elements.length > 0 ? `- **Elements**: ${artifact.elements.join(", ")}` : "",
-        artifact.participants.length > 0 ? `- **Participants**: ${artifact.participants.join(", ")}` : "",
-        artifact.visualHashes.length > 0 ? `- **Visual Hashes**: ${artifact.visualHashes.join(", ")}` : "",
+        artifact.participants.length > 0
+          ? `- **Participants**: ${artifact.participants.join(", ")}`
+          : "",
+        artifact.visualHashes.length > 0
+          ? `- **Visual Hashes**: ${artifact.visualHashes.join(", ")}`
+          : "",
         artifact.screenUrl ? `- **Screen URL**: ${artifact.screenUrl}` : "",
         artifact.sourceUrls.length > 0 ? `- **Sources**: ${artifact.sourceUrls.join(", ")}` : "",
         artifact.notes ? `- **Notes**: ${artifact.notes}` : "",
@@ -611,7 +913,10 @@ function formatArtifactForPrompt(artifact: CapturedArtifact, index: number): str
       : "",
     artifact.steps.length > 0
       ? `Steps: ${sortByOrder(artifact.steps)
-          .map((step) => `${step.order + 1}. ${step.title ?? "Step"}${step.summary ? ` - ${step.summary}` : ""}`)
+          .map(
+            (step) =>
+              `${step.order + 1}. ${step.title ?? "Step"}${step.summary ? ` - ${step.summary}` : ""}`,
+          )
           .join(" | ")}`
       : "",
   ]
@@ -625,7 +930,9 @@ export function buildImplementationPrompt(params: {
   projectName: string;
 }): string {
   const artifactBlocks = params.artifacts.length
-    ? params.artifacts.map((artifact, index) => formatArtifactForPrompt(artifact, index)).join("\n\n")
+    ? params.artifacts
+        .map((artifact, index) => formatArtifactForPrompt(artifact, index))
+        .join("\n\n")
     : "No captured artifacts were selected.";
 
   return [
@@ -651,7 +958,9 @@ export function buildAnalysisPrompt(params: {
   projectName: string;
 }): string {
   const artifactBlocks = params.artifacts.length
-    ? params.artifacts.map((artifact, index) => formatArtifactForPrompt(artifact, index)).join("\n\n")
+    ? params.artifacts
+        .map((artifact, index) => formatArtifactForPrompt(artifact, index))
+        .join("\n\n")
     : "No captured artifacts were selected.";
 
   return [
@@ -676,7 +985,9 @@ export function buildOnboardingPrompt(params: {
   projectName: string;
 }): string {
   const artifactBlocks = params.artifacts.length
-    ? params.artifacts.map((artifact, index) => formatArtifactForPrompt(artifact, index)).join("\n\n")
+    ? params.artifacts
+        .map((artifact, index) => formatArtifactForPrompt(artifact, index))
+        .join("\n\n")
     : "No captured artifacts were selected.";
 
   return [
@@ -778,7 +1089,9 @@ export function buildPrReferenceMarkdown(params: {
               artifact.appName ? `  - App: ${artifact.appName}` : "",
               artifact.featureArea ? `  - Feature Area: ${artifact.featureArea}` : "",
               artifact.screenUrl ? `  - Screen: ${artifact.screenUrl}` : "",
-              artifact.sourceUrls.length > 0 ? `  - Sources: ${artifact.sourceUrls.join(", ")}` : "",
+              artifact.sourceUrls.length > 0
+                ? `  - Sources: ${artifact.sourceUrls.join(", ")}`
+                : "",
               artifact.implementationHints.length > 0
                 ? `  - Implementation hints: ${artifact.implementationHints.join(" | ")}`
                 : "",
@@ -807,7 +1120,10 @@ export function buildPrReferenceMarkdown(params: {
   ].join("\n");
 }
 
-function diffList(intended: string[], actual: string[]): {
+function diffList(
+  intended: string[],
+  actual: string[],
+): {
   shared: string[];
   intendedOnly: string[];
   actualOnly: string[];
@@ -826,10 +1142,18 @@ export function buildFeatureReviewMarkdown(params: {
   intendedArtifacts: CapturedArtifact[];
   actualArtifacts: CapturedArtifact[];
 }): string {
-  const intendedPatterns = normalizeList(params.intendedArtifacts.flatMap((artifact) => artifact.patterns));
-  const actualPatterns = normalizeList(params.actualArtifacts.flatMap((artifact) => artifact.patterns));
-  const intendedElements = normalizeList(params.intendedArtifacts.flatMap((artifact) => artifact.elements));
-  const actualElements = normalizeList(params.actualArtifacts.flatMap((artifact) => artifact.elements));
+  const intendedPatterns = normalizeList(
+    params.intendedArtifacts.flatMap((artifact) => artifact.patterns),
+  );
+  const actualPatterns = normalizeList(
+    params.actualArtifacts.flatMap((artifact) => artifact.patterns),
+  );
+  const intendedElements = normalizeList(
+    params.intendedArtifacts.flatMap((artifact) => artifact.elements),
+  );
+  const actualElements = normalizeList(
+    params.actualArtifacts.flatMap((artifact) => artifact.elements),
+  );
   const intendedTags = normalizeList(params.intendedArtifacts.flatMap((artifact) => artifact.tags));
   const actualTags = normalizeList(params.actualArtifacts.flatMap((artifact) => artifact.tags));
 
@@ -843,10 +1167,14 @@ export function buildFeatureReviewMarkdown(params: {
     `Project: ${params.projectName}`,
     "",
     "## Intended References",
-    params.intendedArtifacts.length > 0 ? formatArtifactList(params.intendedArtifacts) : "No intended artifacts selected.",
+    params.intendedArtifacts.length > 0
+      ? formatArtifactList(params.intendedArtifacts)
+      : "No intended artifacts selected.",
     "",
     "## Actual References",
-    params.actualArtifacts.length > 0 ? formatArtifactList(params.actualArtifacts) : "No actual artifacts selected.",
+    params.actualArtifacts.length > 0
+      ? formatArtifactList(params.actualArtifacts)
+      : "No actual artifacts selected.",
     "",
     "## Diff Summary",
     `- Shared patterns: ${patternDiff.shared.join(", ") || "none"}`,
@@ -870,7 +1198,11 @@ export function seedArtifactsFromCollections(params: {
   collections: Collection[];
   projectPath?: string;
   tags?: string[];
-}): { project: ProjectArtifactIndex["project"]; createdArtifacts: CapturedArtifact[]; totalArtifacts: number } {
+}): {
+  project: ProjectArtifactIndex["project"];
+  createdArtifacts: CapturedArtifact[];
+  totalArtifacts: number;
+} {
   const project = resolveProjectContext(params.projectPath);
   const createdArtifacts = params.collections.map((collection) =>
     createArtifact({
@@ -946,23 +1278,26 @@ export function exportArtifacts(params: {
         : params.format === "pr_markdown"
           ? buildPrReferenceMarkdown({
               title: `PR Reference Pack`,
-              objective: params.objective ?? "Reference artifacts for the implementation in this pull request.",
+              objective:
+                params.objective ??
+                "Reference artifacts for the implementation in this pull request.",
               artifacts: params.artifacts,
               projectName: index.project.projectName,
             })
-        : params.format === "mem_palace_jsonl"
-          ? buildAgentContext({
-              target: "mem_palace",
-              objective: params.objective ?? "Persist these design references as durable memories.",
-              artifacts: params.artifacts,
-              projectName: index.project.projectName,
-            })
-          : serializeArtifactsAsPromptPack(
-              index.project.projectName,
-              params.objective ?? "Use these artifacts as implementation context.",
-              params.artifacts,
-              target,
-            );
+          : params.format === "mem_palace_jsonl"
+            ? buildAgentContext({
+                target: "mem_palace",
+                objective:
+                  params.objective ?? "Persist these design references as durable memories.",
+                artifacts: params.artifacts,
+                projectName: index.project.projectName,
+              })
+            : serializeArtifactsAsPromptPack(
+                index.project.projectName,
+                params.objective ?? "Use these artifacts as implementation context.",
+                params.artifacts,
+                target,
+              );
 
   return {
     project: index.project,

@@ -47,6 +47,11 @@ import {
 } from "./utils/formatting.js";
 import { syncSharedStore } from "./utils/shared-store.js";
 import {
+  captureFlowFromSearch,
+  captureScreenFromSearch,
+  captureSiteSections,
+} from "./utils/capture-workflows.js";
+import {
   buildContactSheet,
   collectArtifactVisualCandidates,
   computePerceptualHash,
@@ -62,12 +67,10 @@ const artifactTypeValues = [
   "reference",
 ] satisfies [CapturedArtifactType, ...CapturedArtifactType[]];
 
-const agentTargetValues = [
-  "claude_code",
-  "codex",
-  "pi",
-  "mem_palace",
-] satisfies [AgentTarget, ...AgentTarget[]];
+const agentTargetValues = ["claude_code", "codex", "pi", "mem_palace"] satisfies [
+  AgentTarget,
+  ...AgentTarget[],
+];
 
 const artifactTypeSchema = z.enum(artifactTypeValues);
 const agentTargetSchema = z.enum(agentTargetValues);
@@ -81,6 +84,8 @@ const exportFormatSchema = z.enum([
 ]);
 const promptModeSchema = z.enum(["implementation", "analysis", "onboarding"]);
 const sharedSyncDirectionSchema = z.enum(["push", "pull", "merge"]);
+const mobbinPlatformSchema = z.enum(["ios", "android", "web"]);
+const mobbinSortSchema = z.enum(["trending", "publishedAt"]);
 const packageJson = JSON.parse(
   readFileSync(new URL("../package.json", import.meta.url), "utf8"),
 ) as { version: string };
@@ -139,6 +144,32 @@ const artifactReferenceSchema = z.object({
   note: z.string().optional().describe("Optional note"),
 });
 
+const captureFromMobbinCommonSchema = {
+  title: z.string().optional().describe("Override the generated artifact title"),
+  summary: z.string().optional().describe("Override the generated artifact summary"),
+  tags: z.array(z.string()).optional().describe("Additional tags to add to the artifact"),
+  notes: z.string().optional().describe("Override generated notes"),
+  feature_area: z.string().optional().describe("Feature area or product surface"),
+  journey_name: z.string().optional().describe("User journey or flow family"),
+  session_name: z.string().optional().describe("Mobbing session name"),
+  participants: z.array(z.string()).optional().describe("Session participants"),
+  implementation_hints: z.array(z.string()).optional().describe("Concrete implementation hints"),
+  source_urls: z.array(z.string().url()).optional().describe("Additional source URLs"),
+  compute_visual_hashes: z
+    .boolean()
+    .default(true)
+    .describe(
+      "Fetch referenced images and store perceptual hashes for visual-similarity workflows",
+    ),
+  hash_image_limit: z
+    .number()
+    .min(1)
+    .max(24)
+    .default(6)
+    .describe("Maximum referenced images to hash during capture"),
+  project_path: z.string().optional().describe("Optional explicit project path override"),
+};
+
 function mapSteps(
   steps?: Array<z.infer<typeof artifactStepSchema>>,
 ): CapturedArtifact["steps"] | undefined {
@@ -179,10 +210,7 @@ function buildCatalogText(catalog: ReturnType<typeof buildArtifactCatalog>["cata
   const formatBucket = (label: string, values: Record<string, number>): string[] => {
     const entries = Object.entries(values).sort((a, b) => b[1] - a[1]);
     if (entries.length === 0) return [];
-    return [
-      `## ${label}`,
-      ...entries.map(([key, count]) => `- ${key}: ${count}`),
-    ];
+    return [`## ${label}`, ...entries.map(([key, count]) => `- ${key}: ${count}`)];
   };
 
   return [
@@ -208,12 +236,12 @@ function buildCatalogText(catalog: ReturnType<typeof buildArtifactCatalog>["cata
 }
 
 async function main() {
-  if (process.argv.includes("--help") || process.argv.includes("-h")) {
+  if (process.argv[2] === "--help" || process.argv[2] === "-h") {
     printHelp();
     return;
   }
 
-  if (process.argv.includes("--version") || process.argv.includes("-v")) {
+  if (process.argv[2] === "--version" || process.argv[2] === "-v") {
     console.log(packageVersion);
     return;
   }
@@ -276,7 +304,10 @@ async function main() {
     feature_area?: string;
     limit?: number;
     project_path?: string;
-  }): { project: ReturnType<typeof loadProjectArtifacts>["project"]; artifacts: CapturedArtifact[] } => {
+  }): {
+    project: ReturnType<typeof loadProjectArtifacts>["project"];
+    artifacts: CapturedArtifact[];
+  } => {
     const index = loadProjectArtifacts(params.project_path);
     const artifacts =
       params.artifact_ids && params.artifact_ids.length > 0
@@ -488,7 +519,8 @@ async function main() {
     "mobbin_feature_analysis_prompt",
     {
       title: "Feature Analysis Prompt",
-      description: "Generate an analysis prompt for comparing shipped UI against captured references.",
+      description:
+        "Generate an analysis prompt for comparing shipped UI against captured references.",
       argsSchema: promptArgsSchema,
     },
     async ({ objective, artifact_ids, query, tags, type, limit }) => {
@@ -589,7 +621,10 @@ async function main() {
       platform: z.enum(["ios", "android", "web"]).default("ios").describe("Platform to search"),
       screen_patterns: z.array(z.string()).optional().describe("Screen patterns to filter by"),
       screen_elements: z.array(z.string()).optional().describe("UI elements to filter by"),
-      screen_keywords: z.array(z.string()).optional().describe("Text keywords found in screenshots"),
+      screen_keywords: z
+        .array(z.string())
+        .optional()
+        .describe("Text keywords found in screenshots"),
       categories: z.array(z.string()).optional().describe("Filter by app categories"),
       has_animation: z.boolean().optional().describe("Filter for animated screens only"),
       sort_by: z.enum(["trending", "publishedAt"]).default("trending").describe("Sort order"),
@@ -648,11 +683,16 @@ async function main() {
     "mobbin_get_site_sections",
     "Fetch copyable sections for a Mobbin site, including section image URLs, source page URLs, patterns, crop bounds, and video segment metadata when available.",
     {
-      site_id: z.string().optional().describe("Mobbin site ID. If omitted, query is used to find a site."),
+      site_id: z
+        .string()
+        .optional()
+        .describe("Mobbin site ID. If omitted, query is used to find a site."),
       site_name: z
         .string()
         .optional()
-        .describe("Site name used to resolve the Mobbin URL when site_id is not in searchable-site metadata"),
+        .describe(
+          "Site name used to resolve the Mobbin URL when site_id is not in searchable-site metadata",
+        ),
       query: z.string().optional().describe("Site search query, such as 'luffu'"),
       page_size: z.number().min(1).max(50).default(DEFAULT_PAGE_SIZE).describe("Results per page"),
       page_index: z.number().min(0).default(0).describe("Page number (0-indexed)"),
@@ -732,7 +772,10 @@ async function main() {
       ]);
 
       const appMap = new Map(allApps.map((app) => [app.id, app]));
-      const matchedApps = [...(searchResult.value.primary ?? []), ...(searchResult.value.other ?? [])]
+      const matchedApps = [
+        ...(searchResult.value.primary ?? []),
+        ...(searchResult.value.other ?? []),
+      ]
         .filter((item) => item.type === "app")
         .map((item) => appMap.get(item.id))
         .filter(Boolean);
@@ -758,7 +801,8 @@ async function main() {
               )
               .join("\n\n")
           : "";
-      const siteText = matchedSites.length > 0 ? `## Site matches\n\n${formatSites(matchedSites)}` : "";
+      const siteText =
+        matchedSites.length > 0 ? `## Site matches\n\n${formatSites(matchedSites)}` : "";
       const text = [appText, siteText].filter(Boolean).join("\n\n");
 
       return { content: [{ type: "text", text }] };
@@ -835,7 +879,9 @@ async function main() {
             .map((entry) => {
               const counts = Object.entries(entry.contentCounts)
                 .flatMap(([type, platforms]) =>
-                  Object.entries(platforms).map(([platform, count]) => `${platform} ${type}: ${count}`),
+                  Object.entries(platforms).map(
+                    ([platform, count]) => `${platform} ${type}: ${count}`,
+                  ),
                 )
                 .join(", ");
               return `  - **${entry.displayName}**: ${entry.definition.substring(0, 80)}${entry.definition.length > 80 ? "..." : ""} (${counts})`;
@@ -1023,9 +1069,15 @@ async function main() {
         journey_name: z.string().optional().describe("User journey or flow family"),
         session_name: z.string().optional().describe("Mobbing session name"),
         participants: z.array(z.string()).optional().describe("Session participants"),
-        implementation_hints: z.array(z.string()).optional().describe("Concrete implementation hints"),
+        implementation_hints: z
+          .array(z.string())
+          .optional()
+          .describe("Concrete implementation hints"),
         decisions: z.array(artifactDecisionSchema).optional().describe("Decision log entries"),
-        references: z.array(artifactReferenceSchema).optional().describe("Related links or artifacts"),
+        references: z
+          .array(artifactReferenceSchema)
+          .optional()
+          .describe("Related links or artifacts"),
         steps: z.array(artifactStepSchema).optional().describe("Ordered flow or screen steps"),
         source_urls: z.array(z.string().url()).optional().describe("Related source URLs"),
         screen_url: z.string().url().optional().describe("Direct screen URL from Mobbin"),
@@ -1116,6 +1168,387 @@ async function main() {
           artifactCount: index.artifacts.length,
         },
       };
+    },
+  );
+
+  server.registerTool(
+    "mobbin_capture_flow_from_search",
+    {
+      title: "Capture Flow From Search",
+      description:
+        "Search Mobbin flows and save the selected web, iOS, or Android flow as a complete project artifact with ordered steps, hotspots, patterns, elements, screen URLs, video references, and optional visual hashes.",
+      inputSchema: {
+        platform: mobbinPlatformSchema.default("ios").describe("Platform to search"),
+        flow_actions: z.array(z.string()).optional().describe("Flow actions to filter by"),
+        categories: z.array(z.string()).optional().describe("App categories to filter by"),
+        app_name: z
+          .string()
+          .optional()
+          .describe("Restrict to flows whose app name includes this value"),
+        flow_name: z
+          .string()
+          .optional()
+          .describe("Restrict to flows whose name includes this value"),
+        flow_id: z.string().optional().describe("Exact Mobbin flow ID from mobbin_search_flows"),
+        result_index: z
+          .number()
+          .min(0)
+          .default(0)
+          .describe("0-indexed selected result after filters are applied"),
+        sort_by: mobbinSortSchema.default("trending").describe("Search sort order"),
+        page_size: z
+          .number()
+          .min(1)
+          .max(50)
+          .default(DEFAULT_PAGE_SIZE)
+          .describe("Results per page"),
+        search_pages: z
+          .number()
+          .min(1)
+          .max(10)
+          .default(3)
+          .describe("Maximum result pages to scan for a matching flow"),
+        ...captureFromMobbinCommonSchema,
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: true,
+      },
+    },
+    async ({
+      platform,
+      flow_actions,
+      categories,
+      app_name,
+      flow_name,
+      flow_id,
+      result_index,
+      sort_by,
+      page_size,
+      search_pages,
+      title,
+      summary,
+      tags,
+      notes,
+      feature_area,
+      journey_name,
+      session_name,
+      participants,
+      implementation_hints,
+      source_urls,
+      compute_visual_hashes,
+      hash_image_limit,
+      project_path,
+    }) => {
+      try {
+        const result = await captureFlowFromSearch(client, {
+          platform,
+          flowActions: flow_actions,
+          categories,
+          appName: app_name,
+          flowName: flow_name,
+          flowId: flow_id,
+          resultIndex: result_index,
+          sortBy: sort_by,
+          pageSize: page_size,
+          searchPages: search_pages,
+          title,
+          summary,
+          tags,
+          notes,
+          featureArea: feature_area,
+          journeyName: journey_name,
+          sessionName: session_name,
+          participants,
+          implementationHints: implementation_hints,
+          sourceUrls: source_urls,
+          computeVisualHashes: compute_visual_hashes,
+          hashImageLimit: hash_image_limit,
+          projectPath: project_path,
+        });
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: [
+                `Captured Mobbin flow **${result.artifact.title}**.`,
+                `- ID: ${result.artifact.id}`,
+                `- Project: ${result.project.projectName}`,
+                `- Steps: ${result.artifact.steps.length}`,
+                `- Visual hashes: ${result.artifact.visualHashes.length}`,
+                `- Pages searched: ${result.pagesSearched}`,
+              ].join("\n"),
+            },
+          ],
+          structuredContent: {
+            project: result.project,
+            artifact: result.artifact,
+            artifactCount: result.artifactCount,
+            selected: result.selected,
+            candidates: result.candidates,
+            pagesSearched: result.pagesSearched,
+          },
+        };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return {
+          content: [{ type: "text", text: `Failed to capture Mobbin flow: ${message}` }],
+          isError: true,
+        };
+      }
+    },
+  );
+
+  server.registerTool(
+    "mobbin_capture_screen_from_search",
+    {
+      title: "Capture Screen From Search",
+      description:
+        "Search Mobbin screens and save the selected web, iOS, or Android screen as a project artifact with patterns, elements, source URLs, and optional visual hash.",
+      inputSchema: {
+        platform: mobbinPlatformSchema.default("ios").describe("Platform to search"),
+        screen_patterns: z.array(z.string()).optional().describe("Screen patterns to filter by"),
+        screen_elements: z.array(z.string()).optional().describe("UI elements to filter by"),
+        screen_keywords: z
+          .array(z.string())
+          .optional()
+          .describe("Text keywords found in screenshots"),
+        categories: z.array(z.string()).optional().describe("App categories to filter by"),
+        has_animation: z.boolean().optional().describe("Filter for animated screens only"),
+        app_name: z
+          .string()
+          .optional()
+          .describe("Restrict to screens whose app name includes this value"),
+        screen_id: z
+          .string()
+          .optional()
+          .describe("Exact Mobbin screen ID from mobbin_search_screens"),
+        result_index: z
+          .number()
+          .min(0)
+          .default(0)
+          .describe("0-indexed selected result after filters are applied"),
+        sort_by: mobbinSortSchema.default("trending").describe("Search sort order"),
+        page_size: z
+          .number()
+          .min(1)
+          .max(50)
+          .default(DEFAULT_PAGE_SIZE)
+          .describe("Results per page"),
+        search_pages: z
+          .number()
+          .min(1)
+          .max(10)
+          .default(3)
+          .describe("Maximum result pages to scan for a matching screen"),
+        ...captureFromMobbinCommonSchema,
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: true,
+      },
+    },
+    async ({
+      platform,
+      screen_patterns,
+      screen_elements,
+      screen_keywords,
+      categories,
+      has_animation,
+      app_name,
+      screen_id,
+      result_index,
+      sort_by,
+      page_size,
+      search_pages,
+      title,
+      summary,
+      tags,
+      notes,
+      feature_area,
+      journey_name,
+      session_name,
+      participants,
+      implementation_hints,
+      source_urls,
+      compute_visual_hashes,
+      hash_image_limit,
+      project_path,
+    }) => {
+      try {
+        const result = await captureScreenFromSearch(client, {
+          platform,
+          screenPatterns: screen_patterns,
+          screenElements: screen_elements,
+          screenKeywords: screen_keywords,
+          categories,
+          hasAnimation: has_animation,
+          appName: app_name,
+          screenId: screen_id,
+          resultIndex: result_index,
+          sortBy: sort_by,
+          pageSize: page_size,
+          searchPages: search_pages,
+          title,
+          summary,
+          tags,
+          notes,
+          featureArea: feature_area,
+          journeyName: journey_name,
+          sessionName: session_name,
+          participants,
+          implementationHints: implementation_hints,
+          sourceUrls: source_urls,
+          computeVisualHashes: compute_visual_hashes,
+          hashImageLimit: hash_image_limit,
+          projectPath: project_path,
+        });
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: [
+                `Captured Mobbin screen **${result.artifact.title}**.`,
+                `- ID: ${result.artifact.id}`,
+                `- Project: ${result.project.projectName}`,
+                `- Visual hashes: ${result.artifact.visualHashes.length}`,
+                `- Pages searched: ${result.pagesSearched}`,
+              ].join("\n"),
+            },
+          ],
+          structuredContent: {
+            project: result.project,
+            artifact: result.artifact,
+            artifactCount: result.artifactCount,
+            selected: result.selected,
+            candidates: result.candidates,
+            pagesSearched: result.pagesSearched,
+          },
+        };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return {
+          content: [{ type: "text", text: `Failed to capture Mobbin screen: ${message}` }],
+          isError: true,
+        };
+      }
+    },
+  );
+
+  server.registerTool(
+    "mobbin_capture_site_sections",
+    {
+      title: "Capture Site Sections",
+      description:
+        "Fetch Mobbin site sections and save selected ordered web sections as a project artifact with section images, page URLs, pattern metadata, video segment metadata, and optional visual hashes.",
+      inputSchema: {
+        site_id: z
+          .string()
+          .optional()
+          .describe("Mobbin site ID. If omitted, query is used to find a site."),
+        site_name: z
+          .string()
+          .optional()
+          .describe("Site name fallback when site_id is not searchable"),
+        query: z.string().optional().describe("Site search query"),
+        section_ids: z.array(z.string()).optional().describe("Exact section IDs to capture"),
+        page_size: z
+          .number()
+          .min(1)
+          .max(50)
+          .default(DEFAULT_PAGE_SIZE)
+          .describe("Sections per page"),
+        page_index: z.number().min(0).default(0).describe("Page number (0-indexed)"),
+        max_sections: z.number().min(1).max(50).optional().describe("Maximum sections to capture"),
+        ...captureFromMobbinCommonSchema,
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: true,
+      },
+    },
+    async ({
+      site_id,
+      site_name,
+      query,
+      section_ids,
+      page_size,
+      page_index,
+      max_sections,
+      title,
+      summary,
+      tags,
+      notes,
+      feature_area,
+      journey_name,
+      session_name,
+      participants,
+      implementation_hints,
+      source_urls,
+      compute_visual_hashes,
+      hash_image_limit,
+      project_path,
+    }) => {
+      try {
+        const result = await captureSiteSections(client, {
+          siteId: site_id,
+          siteName: site_name,
+          query,
+          sectionIds: section_ids,
+          pageSize: page_size,
+          pageIndex: page_index,
+          maxSections: max_sections,
+          title,
+          summary,
+          tags,
+          notes,
+          featureArea: feature_area,
+          journeyName: journey_name,
+          sessionName: session_name,
+          participants,
+          implementationHints: implementation_hints,
+          sourceUrls: source_urls,
+          computeVisualHashes: compute_visual_hashes,
+          hashImageLimit: hash_image_limit,
+          projectPath: project_path,
+        });
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: [
+                `Captured Mobbin site sections **${result.artifact.title}**.`,
+                `- ID: ${result.artifact.id}`,
+                `- Project: ${result.project.projectName}`,
+                `- Sections: ${result.artifact.steps.length}`,
+                `- Visual hashes: ${result.artifact.visualHashes.length}`,
+              ].join("\n"),
+            },
+          ],
+          structuredContent: {
+            project: result.project,
+            artifact: result.artifact,
+            artifactCount: result.artifactCount,
+            selected: result.selected,
+            candidates: result.candidates,
+          },
+        };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return {
+          content: [{ type: "text", text: `Failed to capture Mobbin site sections: ${message}` }],
+          isError: true,
+        };
+      }
     },
   );
 
@@ -1228,7 +1661,9 @@ async function main() {
       }
 
       return {
-        content: [{ type: "text", text: `Updated artifact **${artifact.title}** (${artifact.id}).` }],
+        content: [
+          { type: "text", text: `Updated artifact **${artifact.title}** (${artifact.id}).` },
+        ],
         structuredContent: {
           project,
           artifact,
@@ -1273,7 +1708,8 @@ async function main() {
     "mobbin_search_captured_artifacts",
     {
       title: "Search Captured Artifacts",
-      description: "Search previously captured screens, flows, notes, and implementation references.",
+      description:
+        "Search previously captured screens, flows, notes, and implementation references.",
       inputSchema: {
         query: z.string().optional().describe("Full-text query"),
         tags: z.array(z.string()).optional().describe("Require all listed tags"),
@@ -1322,7 +1758,8 @@ async function main() {
     "mobbin_get_capture_catalog",
     {
       title: "Get Capture Catalog",
-      description: "Return tag, type, app, platform, pattern, and feature-area counts for captured artifacts.",
+      description:
+        "Return tag, type, app, platform, pattern, and feature-area counts for captured artifacts.",
       inputSchema: {
         project_path: z.string().optional().describe("Optional explicit project path override"),
       },
@@ -1336,7 +1773,12 @@ async function main() {
     async ({ project_path }) => {
       const { project, catalog } = buildArtifactCatalog(project_path);
       return {
-        content: [{ type: "text", text: [`## ${project.projectName} Catalog`, buildCatalogText(catalog)].join("\n\n") }],
+        content: [
+          {
+            type: "text",
+            text: [`## ${project.projectName} Catalog`, buildCatalogText(catalog)].join("\n\n"),
+          },
+        ],
         structuredContent: {
           project,
           catalog,
@@ -1421,7 +1863,10 @@ async function main() {
       description:
         "Import artifacts from a prior JSON export. Useful for sharing references across machines, projects, or agents.",
       inputSchema: {
-        payload: z.string().min(2).describe("JSON payload containing artifacts or a project artifact index"),
+        payload: z
+          .string()
+          .min(2)
+          .describe("JSON payload containing artifacts or a project artifact index"),
         merge_strategy: z
           .enum(["append", "replace"])
           .default("append")
@@ -1487,7 +1932,18 @@ async function main() {
         openWorldHint: false,
       },
     },
-    async ({ mode, objective, artifact_ids, query, tags, type, app_name, feature_area, limit, project_path }) => {
+    async ({
+      mode,
+      objective,
+      artifact_ids,
+      query,
+      tags,
+      type,
+      app_name,
+      feature_area,
+      limit,
+      project_path,
+    }) => {
       const { project, artifacts } = selectArtifacts({
         artifact_ids,
         query,
@@ -1542,7 +1998,18 @@ async function main() {
         openWorldHint: false,
       },
     },
-    async ({ target_agent, objective, artifact_ids, query, tags, type, app_name, feature_area, limit, project_path }) => {
+    async ({
+      target_agent,
+      objective,
+      artifact_ids,
+      query,
+      tags,
+      type,
+      app_name,
+      feature_area,
+      limit,
+      project_path,
+    }) => {
       const { project, artifacts } = selectArtifacts({
         artifact_ids,
         query,
@@ -1586,7 +2053,12 @@ async function main() {
         app_name: z.string().optional().describe("Optional source app filter"),
         feature_area: z.string().optional().describe("Optional feature-area filter"),
         limit: z.number().min(1).max(12).default(6).describe("Maximum artifacts to include"),
-        columns: z.number().min(1).max(6).default(3).describe("Number of columns in the contact sheet"),
+        columns: z
+          .number()
+          .min(1)
+          .max(6)
+          .default(3)
+          .describe("Number of columns in the contact sheet"),
         project_path: z.string().optional().describe("Optional explicit project path override"),
       },
       annotations: {
@@ -1596,7 +2068,17 @@ async function main() {
         openWorldHint: true,
       },
     },
-    async ({ artifact_ids, query, tags, type, app_name, feature_area, limit, columns, project_path }) => {
+    async ({
+      artifact_ids,
+      query,
+      tags,
+      type,
+      app_name,
+      feature_area,
+      limit,
+      columns,
+      project_path,
+    }) => {
       const { project, artifacts } = selectArtifacts({
         artifact_ids,
         query,
@@ -1608,7 +2090,9 @@ async function main() {
         project_path,
       });
 
-      const candidates = artifacts.flatMap((artifact) => collectArtifactVisualCandidates(artifact)).slice(0, 24);
+      const candidates = artifacts
+        .flatMap((artifact) => collectArtifactVisualCandidates(artifact))
+        .slice(0, 24);
       if (candidates.length === 0) {
         return {
           content: [{ type: "text", text: "No screen URLs were found in the selected artifacts." }],
@@ -1628,7 +2112,9 @@ async function main() {
 
       if (items.length === 0) {
         return {
-          content: [{ type: "text", text: "Unable to fetch any images for the selected artifacts." }],
+          content: [
+            { type: "text", text: "Unable to fetch any images for the selected artifacts." },
+          ],
           isError: true,
         };
       }
@@ -1666,8 +2152,15 @@ async function main() {
       description:
         "Compute visual hashes and find visually similar captured artifacts using perceptual-hash distance.",
       inputSchema: {
-        artifact_id: z.string().optional().describe("Captured artifact ID to use as the visual reference"),
-        screen_url: z.string().url().optional().describe("Optional direct screen URL instead of an artifact ID"),
+        artifact_id: z
+          .string()
+          .optional()
+          .describe("Captured artifact ID to use as the visual reference"),
+        screen_url: z
+          .string()
+          .url()
+          .optional()
+          .describe("Optional direct screen URL instead of an artifact ID"),
         max_distance: z.number().min(0).max(64).default(8).describe("Maximum Hamming distance"),
         limit: z.number().min(1).max(20).default(8).describe("Maximum similar artifacts to return"),
         project_path: z.string().optional().describe("Optional explicit project path override"),
@@ -1688,7 +2181,10 @@ async function main() {
       }
 
       const index = loadProjectArtifacts(project_path);
-      const artifactsWithHashes = await ensureVisualHashesForArtifacts(index.artifacts, project_path);
+      const artifactsWithHashes = await ensureVisualHashesForArtifacts(
+        index.artifacts,
+        project_path,
+      );
 
       let targetHashes: string[] = [];
       let targetArtifactId: string | undefined;
@@ -1710,7 +2206,12 @@ async function main() {
 
       if (targetHashes.length === 0) {
         return {
-          content: [{ type: "text", text: "No visual hashes could be computed for the selected reference." }],
+          content: [
+            {
+              type: "text",
+              text: "No visual hashes could be computed for the selected reference.",
+            },
+          ],
           isError: true,
         };
       }
@@ -1769,7 +2270,18 @@ async function main() {
         openWorldHint: false,
       },
     },
-    async ({ title, objective, artifact_ids, query, tags, type, app_name, feature_area, limit, project_path }) => {
+    async ({
+      title,
+      objective,
+      artifact_ids,
+      query,
+      tags,
+      type,
+      app_name,
+      feature_area,
+      limit,
+      project_path,
+    }) => {
       const { project, artifacts } = selectArtifacts({
         artifact_ids,
         query,
@@ -1805,8 +2317,14 @@ async function main() {
       description:
         "Seed the local project store from Mobbin collection metadata and preview screens. This currently syncs collection-level references rather than individual collection contents.",
       inputSchema: {
-        collection_ids: z.array(z.string()).optional().describe("Optional subset of collection IDs to sync"),
-        tags: z.array(z.string()).optional().describe("Optional extra tags to apply to the seeded artifacts"),
+        collection_ids: z
+          .array(z.string())
+          .optional()
+          .describe("Optional subset of collection IDs to sync"),
+        tags: z
+          .array(z.string())
+          .optional()
+          .describe("Optional extra tags to apply to the seeded artifacts"),
         project_path: z.string().optional().describe("Optional explicit project path override"),
       },
       annotations: {
@@ -1849,8 +2367,12 @@ async function main() {
         "Generate a diff-ready review report comparing intended references against actual implementation artifacts.",
       inputSchema: {
         title: z.string().min(3).default("Feature Review").describe("Review title"),
-        intended_artifact_ids: z.array(z.string()).describe("Artifacts representing the intended design or flow"),
-        actual_artifact_ids: z.array(z.string()).describe("Artifacts representing the shipped or current implementation"),
+        intended_artifact_ids: z
+          .array(z.string())
+          .describe("Artifacts representing the intended design or flow"),
+        actual_artifact_ids: z
+          .array(z.string())
+          .describe("Artifacts representing the shipped or current implementation"),
         project_path: z.string().optional().describe("Optional explicit project path override"),
       },
       annotations: {
@@ -1862,8 +2384,12 @@ async function main() {
     },
     async ({ title, intended_artifact_ids, actual_artifact_ids, project_path }) => {
       const index = loadProjectArtifacts(project_path);
-      const intendedArtifacts = index.artifacts.filter((artifact) => intended_artifact_ids.includes(artifact.id));
-      const actualArtifacts = index.artifacts.filter((artifact) => actual_artifact_ids.includes(artifact.id));
+      const intendedArtifacts = index.artifacts.filter((artifact) =>
+        intended_artifact_ids.includes(artifact.id),
+      );
+      const actualArtifacts = index.artifacts.filter((artifact) =>
+        actual_artifact_ids.includes(artifact.id),
+      );
       const markdown = buildFeatureReviewMarkdown({
         title,
         projectName: index.project.projectName,
@@ -1894,7 +2420,9 @@ async function main() {
         shared_store_dir: z
           .string()
           .optional()
-          .describe("Optional explicit shared store directory; otherwise MOBBIN_SHARED_STORE_DIR is used"),
+          .describe(
+            "Optional explicit shared store directory; otherwise MOBBIN_SHARED_STORE_DIR is used",
+          ),
         project_path: z.string().optional().describe("Optional explicit project path override"),
       },
       annotations: {

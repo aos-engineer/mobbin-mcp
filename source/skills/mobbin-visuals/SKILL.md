@@ -10,6 +10,8 @@ allowed-tools:
 
 Visual workflows for saved Mobbin artifacts.
 
+For best results, capture Mobbin flows, screens, and site sections with `compute_visual_hashes: true`. If hashes are missing, `find-similar` computes them from saved screen URLs before matching.
+
 Use:
 
 ```bash
@@ -27,5 +29,6 @@ node scripts/mobbin-visuals.mjs <action> '<json>'
 ```bash
 node scripts/mobbin-visuals.mjs contact-sheet '{"feature_area":"checkout","limit":6,"columns":3,"output_path":"checkout-contact-sheet.png"}'
 node scripts/mobbin-visuals.mjs find-similar '{"artifact_id":"...","max_distance":8,"limit":8}'
+node scripts/mobbin-visuals.mjs find-similar '{"screen_url":"https://bytescale.mobbin.com/...","max_distance":10,"limit":5}'
 node scripts/mobbin-visuals.mjs sync-collections '{"tags":["seeded-from-collection"]}'
 ```

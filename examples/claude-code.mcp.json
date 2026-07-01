@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "mobbin": {
+      "command": "npx",
+      "args": ["-y", "@aos-engineer/mobbin-mcp"],
+      "env": {}
+    }
+  }
+}

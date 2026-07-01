@@ -13,6 +13,7 @@
   ],
   "scripts": {
     "build": "tsc && node scripts/build-skills.mjs",
+    "build:mcpb": "npm run build && node scripts/build-mcpb.mjs",
     "prepare": "npm run build",
     "start": "tsx src/index.ts",
     "dev": "tsx --watch src/index.ts",

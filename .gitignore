@@ -10,3 +10,7 @@ dist/
 
 # Skill eval scratch output (timings, gradings, iteration runs)
 /mobbin-flow-architect-evals/
+
+# MCPB desktop bundle build outputs
+/.mcpb-build/
+/dist-mcpb/

@@ -1,0 +1,25 @@
+# Mobbin MCP server for OpenAI Codex (CLI, IDE extension, and desktop app).
+#
+# Add this block to your Codex config:
+#   - global:  ~/.codex/config.toml
+#   - project: .codex/config.toml   (trusted projects only)
+# In the Codex desktop app / IDE extension: gear menu -> MCP settings -> Open config.toml.
+# Restart or reload Codex after editing.
+#
+# Or add it with the CLI (no manual editing):
+#   codex mcp add mobbin -- npx -y @aos-engineer/mobbin-mcp
+#
+# Auth: run once to store your session, then leave env unset:
+#   npx -y @aos-engineer/mobbin-mcp auth
+# ...or pass your Mobbin cookie pair via the env table below.
+
+[mcp_servers.mobbin]
+command = "npx"
+args = ["-y", "@aos-engineer/mobbin-mcp"]
+# If you installed the package globally (npm i -g @aos-engineer/mobbin-mcp),
+# you can use the shorter form instead:
+#   command = "mobbin-mcp"
+#   args = []
+
+# Optional inline auth (otherwise run `mobbin-mcp auth` once):
+# env = { MOBBIN_AUTH_COOKIE = "sb-ujasntkfphywizsdaapi-auth-token.0=...; sb-ujasntkfphywizsdaapi-auth-token.1=..." }

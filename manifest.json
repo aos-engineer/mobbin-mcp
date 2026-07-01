@@ -1,0 +1,64 @@
+{
+  "manifest_version": "0.3",
+  "name": "mobbin-mcp",
+  "display_name": "Mobbin",
+  "version": "1.0.18",
+  "description": "Search Mobbin design references and capture flows, screens, and site sections into a project-aware local store.",
+  "long_description": "A local-first Mobbin integration. Search Mobbin's apps, screens, flows, sites, filters, and collections, then capture flows, screens, and site sections directly into a project-aware store your agent can reuse through prompts, contact sheets, visual similarity, and PR reference packs. Mobbin has no public API; this server uses your own authenticated Mobbin session.",
+  "author": {
+    "name": "Segun Kolade",
+    "url": "https://github.com/aos-engineer/mobbin-mcp"
+  },
+  "homepage": "https://github.com/aos-engineer/mobbin-mcp",
+  "documentation": "https://github.com/aos-engineer/mobbin-mcp#readme",
+  "support": "https://github.com/aos-engineer/mobbin-mcp/issues",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/aos-engineer/mobbin-mcp"
+  },
+  "license": "MIT",
+  "keywords": ["mobbin", "design", "ui", "ux", "references", "design-engineering", "mcp"],
+  "server": {
+    "type": "node",
+    "entry_point": "dist/index.js",
+    "mcp_config": {
+      "command": "npx",
+      "args": ["-y", "@aos-engineer/mobbin-mcp@1.0.18"],
+      "env": {
+        "MOBBIN_AUTH_COOKIE": "${user_config.mobbin_auth_cookie}",
+        "MOBBIN_DATA_DIR": "${user_config.data_dir}"
+      }
+    }
+  },
+  "tools_generated": true,
+  "tools": [
+    { "name": "mobbin_search_screens", "description": "Search Mobbin screens by pattern, app, and platform." },
+    { "name": "mobbin_search_flows", "description": "Search Mobbin user flows across apps." },
+    { "name": "mobbin_capture_flow_from_search", "description": "Capture a Mobbin flow into the local project store with ordered steps and metadata." },
+    { "name": "mobbin_capture_screen_from_search", "description": "Capture a Mobbin screen into the local project store." },
+    { "name": "mobbin_get_capture_catalog", "description": "List captured design references for the current project." },
+    { "name": "mobbin_generate_feature_prompt", "description": "Generate an implementation/analysis prompt from captured references." }
+  ],
+  "user_config": {
+    "mobbin_auth_cookie": {
+      "type": "string",
+      "title": "Mobbin auth cookie",
+      "description": "Paste your Mobbin Supabase auth cookie pair (sb-...-auth-token.0=...; sb-...-auth-token.1=...) from a logged-in Mobbin browser session. Leave blank if you have already authenticated once by running: npx -y @aos-engineer/mobbin-mcp auth",
+      "sensitive": true,
+      "required": false
+    },
+    "data_dir": {
+      "type": "directory",
+      "title": "Data directory (optional)",
+      "description": "Where captured artifacts and auth are stored. Defaults to ~/.mobbin-mcp.",
+      "required": false
+    }
+  },
+  "compatibility": {
+    "claude_desktop": ">=0.10.0",
+    "platforms": ["darwin", "win32", "linux"],
+    "runtimes": {
+      "node": ">=18.0.0"
+    }
+  }
+}

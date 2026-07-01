@@ -381,7 +381,9 @@ For a local checkout, use:
 
 ### Optional: Claude Desktop MCP
 
-Add to your Claude Desktop config (`~/Library/Application Support/Claude/claude_desktop_config.json`):
+For Claude Desktop, the easiest path is the one-click **MCPB bundle** (`.mcpb`). Build it with `npm run build:mcpb`, then double-click `dist-mcpb/mobbin-mcp.mcpb` or drag it into **Settings → Extensions**. See [docs/DESKTOP.md](docs/DESKTOP.md) for Claude Desktop, Claude Code, and Codex, including why `.mcpb` only covers Claude Desktop while Claude Code and Codex use MCP config.
+
+To configure it manually instead, add to your Claude Desktop config (`~/Library/Application Support/Claude/claude_desktop_config.json`):
 
 ```json
 {
@@ -485,6 +487,7 @@ Additional docs:
 - [Architecture](docs/ARCHITECTURE.md)
 - [Portability](docs/PORTABILITY.md)
 - [Skills](docs/SKILLS.md)
+- [Desktop Apps (Claude Desktop, Claude Code, Codex)](docs/DESKTOP.md)
 - [Workflows](docs/WORKFLOWS.md)
 - [Release](docs/RELEASE.md)
 - [Implementation Ideas](docs/IMPLEMENTATION_IDEAS.md)

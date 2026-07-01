@@ -10,6 +10,8 @@ jobs:
     permissions:
       contents: read
       id-token: write
+    env:
+      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
     steps:
       - uses: actions/checkout@v4
 
@@ -20,6 +22,12 @@ jobs:
 
       - run: npm ci
       - run: npm run build
-      - run: npm publish --provenance --access public
+
+      # Only publish when an NPM_TOKEN secret is configured. This keeps GitHub
+      # Releases (e.g. ones that only attach the .mcpb desktop bundle) from
+      # failing when publishing is done manually or the token is absent.
+      - name: Publish to npm
+        if: ${{ env.NPM_TOKEN != '' }}
+        run: npm publish --provenance --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

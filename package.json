@@ -4,6 +4,12 @@
   "description": "MCP server for searching and browsing Mobbin design inspiration",
   "type": "module",
   "main": "dist/index.js",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/aos-engineer/mobbin-mcp.git"
+  },
+  "homepage": "https://github.com/aos-engineer/mobbin-mcp#readme",
+  "bugs": "https://github.com/aos-engineer/mobbin-mcp/issues",
   "bin": {
     "mobin-mcp": "dist/index.js",
     "mobbin-mcp": "dist/index.js"

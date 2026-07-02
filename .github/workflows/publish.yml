@@ -3,15 +3,18 @@ name: Publish to npm
 on:
   release:
     types: [published]
+  workflow_dispatch:
+
+concurrency:
+  group: publish-npm
+  cancel-in-progress: false
 
 jobs:
   publish:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      id-token: write
-    env:
-      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+      id-token: write # OIDC trusted publishing + provenance attestation
     steps:
       - uses: actions/checkout@v4
 
@@ -20,14 +23,18 @@ jobs:
           node-version: 20
           registry-url: https://registry.npmjs.org
 
+      # npm >= 11.5 is required for OIDC trusted publishing.
+      - name: Upgrade npm
+        run: npm install -g npm@latest
+
       - run: npm ci
       - run: npm run build
 
-      # Only publish when an NPM_TOKEN secret is configured. This keeps GitHub
-      # Releases (e.g. ones that only attach the .mcpb desktop bundle) from
-      # failing when publishing is done manually or the token is absent.
+      # Publishes via OIDC when a trusted publisher is configured for this
+      # repo/workflow on npmjs.com (no secret needed). Falls back to the
+      # NPM_TOKEN secret otherwise; set NPM_TOKEN once as an org-level secret on
+      # aos-engineer to share it across every repo without per-repo setup.
       - name: Publish to npm
-        if: ${{ env.NPM_TOKEN != '' }}
         run: npm publish --provenance --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

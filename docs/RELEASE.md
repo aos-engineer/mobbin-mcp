@@ -51,9 +51,20 @@ mobbin-mcp skills install --force
 mobbin-mcp skills status
 ```
 
-## Auth Requirements
+## Automated Publishing (GitHub Actions)
 
-Publishing requires an npm account with permission for the `@aos-engineer` scope. Check auth with:
+`.github/workflows/publish.yml` publishes to npm on every published GitHub Release, and can be run on demand from the Actions tab (**Run workflow**, `workflow_dispatch`). Bump the version first — npm rejects re-publishing an existing version.
+
+The workflow authenticates two ways, in order of preference:
+
+1. **OIDC trusted publishing (no secret).** Configure a trusted publisher for `@aos-engineer/mobbin-mcp` on npmjs.com (Package → Settings → Trusted Publisher → GitHub Actions; repo `aos-engineer/mobbin-mcp`, workflow `publish.yml`). The workflow already sets `id-token: write` and `--provenance`, so it then publishes with no token to store or rotate.
+2. **`NPM_TOKEN` secret (fallback).** Set an npm automation token as `NPM_TOKEN`. Prefer an **organization** secret on `aos-engineer` (Settings → Secrets and variables → Actions → New organization secret, Repository access = All or Selected) so it is shared across repos without per-repo setup.
+
+Set up at least one of these before publishing, or the publish step fails on auth.
+
+## Auth Requirements (manual publish)
+
+Publishing locally requires an npm account with permission for the `@aos-engineer` scope. Check auth with:
 
 ```bash
 npm whoami

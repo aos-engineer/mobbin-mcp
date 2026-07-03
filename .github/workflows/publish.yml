@@ -30,11 +30,28 @@ jobs:
       - run: npm ci
       - run: npm run build
 
+      # Skip publishing when this version is already on npm, so cutting a
+      # release for an already-published version (or re-running the workflow)
+      # stays green instead of failing on a duplicate publish.
+      - name: Check whether version is already published
+        id: version
+        run: |
+          NAME="$(node -p "require('./package.json').name")"
+          VERSION="$(node -p "require('./package.json').version")"
+          if npm view "$NAME@$VERSION" version >/dev/null 2>&1; then
+            echo "$NAME@$VERSION is already published; skipping publish."
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "$NAME@$VERSION is not published yet."
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          fi
+
       # Publishes via OIDC when a trusted publisher is configured for this
       # repo/workflow on npmjs.com (no secret needed). Falls back to the
       # NPM_TOKEN secret otherwise; set NPM_TOKEN once as an org-level secret on
       # aos-engineer to share it across every repo without per-repo setup.
       - name: Publish to npm
+        if: ${{ steps.version.outputs.publish == 'true' }}
         run: npm publish --provenance --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
